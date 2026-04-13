@@ -1,0 +1,12 @@
+# Dados coletados e planilhas — contêm informações internas de infraestrutura
+*.txt
+*.xlsx
+*.xls
+*.zip
+
+# Dependências Node
+dashboard/node_modules/
+
+# Arquivos temporários
+*.tmp
+*.log

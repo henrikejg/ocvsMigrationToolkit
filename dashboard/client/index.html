@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OCVS Migration Dashboard v0.1</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+  header { background: #1e293b; border-bottom: 1px solid #334155; padding: 16px 24px;
+           display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 1.2rem; font-weight: 600; color: #f1f5f9; }
+  header span { font-size: 0.8rem; color: #64748b; }
+  .onda-select { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .onda-select label { font-size: 0.85rem; color: #94a3b8; }
+  select { background: #334155; color: #f1f5f9; border: 1px solid #475569;
+           padding: 6px 12px; border-radius: 6px; font-size: 0.9rem; cursor: pointer; }
+  select:focus { outline: none; border-color: #3b82f6; }
+  .btn-refresh { background: #1d4ed8; color: white; border: none; padding: 6px 14px;
+                 border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+  .btn-refresh:hover { background: #2563eb; }
+  main { padding: 24px; display: grid; gap: 20px; }
+  .cards-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 20px; }
+  .card h2 { font-size: 0.8rem; color: #64748b; text-transform: uppercase;
+             letter-spacing: 0.05em; margin-bottom: 8px; }
+  .card .valor { font-size: 2rem; font-weight: 700; color: #f1f5f9; }
+  .card .sub { font-size: 0.75rem; color: #64748b; margin-top: 4px; }
+  .panel { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 20px; }
+  .panel h2 { font-size: 1rem; font-weight: 600; color: #f1f5f9; margin-bottom: 16px;
+              display: flex; align-items: center; gap: 8px; }
+  .panel h2 .badge { font-size: 0.7rem; background: #334155; color: #94a3b8;
+                     padding: 2px 8px; border-radius: 99px; font-weight: 400; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  th { text-align: left; padding: 8px 10px; color: #64748b; font-weight: 500;
+       border-bottom: 1px solid #334155; white-space: nowrap; }
+  td { padding: 7px 10px; border-bottom: 1px solid #1e293b; color: #cbd5e1; }
+  tr:hover td { background: #263348; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 0.72rem; font-weight: 500; }
+  .tag-ocvs     { background: #14532d; color: #86efac; }
+  .tag-fora     { background: #450a0a; color: #fca5a5; }
+  .tag-in       { background: #1e3a5f; color: #93c5fd; }
+  .tag-out      { background: #3b1f5e; color: #c4b5fd; }
+  .tag-analisar { background: #422006; color: #fcd34d; }
+  .bar-wrap { display: flex; flex-direction: column; gap: 10px; }
+  .bar-item { display: flex; flex-direction: column; gap: 4px; cursor: pointer;
+              padding: 6px 8px; border-radius: 6px; transition: background 0.15s; }
+  .bar-item:hover { background: #263348; }
+  .bar-item:hover .bar-label span:first-child { color: #93c5fd; }
+  .bar-label { display: flex; justify-content: space-between; font-size: 0.8rem; }
+  .bar-label span:first-child { color: #cbd5e1; }
+  .bar-label span:last-child  { color: #94a3b8; }
+  .bar-track { height: 8px; background: #334155; border-radius: 4px; overflow: hidden; }
+  .bar-fill  { height: 100%; border-radius: 4px; transition: width 0.5s; }
+  .loading { color: #475569; font-size: 0.9rem; padding: 20px 0; text-align: center; }
+  .empty   { color: #475569; font-size: 0.85rem; padding: 20px 0; text-align: center; }
+  .search  { background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+             padding: 7px 12px; border-radius: 6px; font-size: 0.85rem; width: 100%;
+             margin-bottom: 12px; }
+  .search:focus { outline: none; border-color: #3b82f6; }
+  .tab-bar { display: flex; gap: 4px; margin-bottom: 16px; }
+  .tab { padding: 6px 14px; border-radius: 6px; font-size: 0.82rem; cursor: pointer;
+         background: #334155; color: #94a3b8; border: none; }
+  .tab.active { background: #1d4ed8; color: white; }
+  .grafo-container { width: 100%; height: 500px; background: #0f172a;
+                     border-radius: 8px; overflow: hidden; position: relative; }
+  canvas { display: block; }
+  .tooltip { position: fixed; background: #1e293b; border: 1px solid #334155;
+             padding: 8px 12px; border-radius: 6px; font-size: 0.78rem; color: #e2e8f0;
+             pointer-events: none; z-index: 100; display: none; max-width: 280px; }
+  .no-onda { display: flex; flex-direction: column; align-items: center; justify-content: center;
+             height: 60vh; gap: 12px; color: #475569; }
+  .no-onda svg { width: 48px; height: 48px; opacity: 0.3; }
+  .contador-badge { font-weight: 700; color: #f1f5f9; }
+  .alert { background: #450a0a; border: 1px solid #7f1d1d; border-radius: 8px;
+           padding: 12px 16px; font-size: 0.85rem; color: #fca5a5; }
+  /* Modal drilldown */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+                   z-index: 200; display: flex; align-items: center; justify-content: center; }
+  .modal { background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+           width: 90vw; max-width: 1100px; max-height: 85vh;
+           display: flex; flex-direction: column; overflow: hidden; }
+  .modal-header { padding: 16px 20px; border-bottom: 1px solid #334155;
+                  display: flex; align-items: center; justify-content: space-between; }
+  .modal-header h3 { font-size: 1rem; font-weight: 600; color: #f1f5f9; }
+  .modal-header .sub { font-size: 0.8rem; color: #64748b; margin-top: 2px; }
+  .modal-close { background: none; border: none; color: #64748b; font-size: 1.4rem;
+                 cursor: pointer; padding: 0 4px; line-height: 1; }
+  .modal-close:hover { color: #f1f5f9; }
+  .modal-search { padding: 12px 20px; border-bottom: 1px solid #334155; }
+  .modal-body { overflow-y: auto; flex: 1; }
+  .modal-body table { width: 100%; }
+  .modal-body th { position: sticky; top: 0; background: #1e293b; z-index: 1; }
+  /* Terminal de execução */
+  .terminal { background: #020617; border-radius: 8px; padding: 16px; font-family: 'Consolas','Courier New',monospace;
+              font-size: 0.78rem; height: 380px; overflow-y: auto; color: #94a3b8; }
+  .terminal .log     { color: #94a3b8; }
+  .terminal .info    { color: #38bdf8; }
+  .terminal .erro    { color: #f87171; }
+  .terminal .sucesso { color: #4ade80; font-weight: 600; }
+  .terminal .warn    { color: #fbbf24; }
+  .terminal .sep     { color: #334155; }
+  .form-row { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .form-row input { background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+                    padding: 7px 12px; border-radius: 6px; font-size: 0.85rem; flex: 1; min-width: 120px; }
+  .form-row input:focus { outline: none; border-color: #3b82f6; }
+  .btn-exec  { padding: 7px 20px; border-radius: 6px; border: none; cursor: pointer;
+               font-size: 0.85rem; font-weight: 600; }
+  .btn-run   { background: #16a34a; color: white; }
+  .btn-run:hover   { background: #15803d; }
+  .btn-run:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+  /* Árvore de servidores */
+  .tree { font-size: 0.82rem; }
+  .tree-row { display: grid; align-items: center; padding: 5px 8px; border-radius: 4px;
+              cursor: pointer; user-select: none; }
+  .tree-row:hover { background: #263348; }
+  .tree-servidor { grid-template-columns: 1fr 110px 90px 90px;
+                   font-weight: 600; color: #f1f5f9; background: #263348;
+                   border-left: 3px solid #3b82f6; margin-bottom: 2px; border-radius: 4px; }
+  .tree-aplicacao { grid-template-columns: 1fr 110px 90px 90px;
+                    padding-left: 20px; color: #94a3b8; font-style: italic; }
+  .tree-ip        { grid-template-columns: 1fr 110px 90px 90px;
+                    padding-left: 40px; color: #cbd5e1; }
+  .tree-porta     { grid-template-columns: 1fr 110px 90px 90px;
+                    padding-left: 60px; color: #64748b; cursor: default; }
+  .tree-header    { grid-template-columns: 1fr 110px 90px 90px;
+                    color: #475569; font-size: 0.75rem; text-transform: uppercase;
+                    letter-spacing: 0.05em; padding: 4px 8px; margin-bottom: 4px; }
+  .tree-num { text-align: right; }
+  .tree-num.est  { color: #86efac; }
+  .tree-num.syn  { color: #fcd34d; }
+  .tree-num.tot  { color: #f1f5f9; font-weight: 600; }
+  .tree-toggle { display: inline-block; width: 14px; text-align: center;
+                 color: #64748b; font-size: 0.7rem; margin-right: 4px; }
+  .collapsed > .tree-children { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+    <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+  </svg>
+  <h1>OCVS Migration Dashboard <span style="font-size:0.7rem;color:#475569;font-weight:400">v0.1</span></h1>
+  <span id="excel-path"></span>
+  <div class="onda-select">
+    <label>Onda:</label>
+    <select id="sel-onda"><option value="">-- selecione --</option></select>
+    <label style="margin-left:12px">Tipo de Conexão:</label>
+    <select id="sel-ocvs">
+      <option value="OCVS" selected>Apenas OCVS</option>
+      <option value="FORA">Apenas Fora do OCVS</option>
+      <option value="">Todos</option>
+    </select>
+    <button class="btn-refresh" onclick="limparCache()">&#8635; Recarregar</button>
+    <button class="btn-refresh" style="background:#16a34a" onclick="abrirExecucao('coletar')">&#9660; Coletar</button>
+    <button class="btn-refresh" style="background:#7c3aed" onclick="abrirExecucao('processar')">&#9654; Processar</button>
+  </div>
+</header>
+
+<div class="tooltip" id="tooltip"></div>
+
+<main id="main">
+  <div class="no-onda">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8"/>
+    </svg>
+    <p>Selecione uma onda para visualizar os dados</p>
+    <div style="display:flex;gap:12px;margin-top:8px">
+      <button class="btn-refresh" style="background:#16a34a" onclick="abrirExecucao('coletar')">&#9660; Coletar Onda</button>
+      <button class="btn-refresh" style="background:#7c3aed" onclick="abrirExecucao('processar')">&#9654; Processar Onda</button>
+    </div>
+  </div>
+</main>
+
+<div id="modal-root"></div>
+
+<script>
+const API = "";
+let ondaAtual = "";
+let dadosGrafo = null;
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+async function init() {
+  const [ondas, excel] = await Promise.all([
+    fetch(`${API}/api/ondas`).then(r => r.json()),
+    fetch(`${API}/api/excel`).then(r => r.json()),
+  ]);
+
+  const sel = document.getElementById("sel-onda");
+  ondas.forEach(o => {
+    const opt = document.createElement("option");
+    opt.value = o; opt.textContent = `Onda ${o}`;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", e => { ondaAtual = e.target.value; renderDashboard(); });
+  document.getElementById("sel-ocvs").addEventListener("change", () => { if (ondaAtual) renderDashboard(); });
+
+  if (excel.path) {
+    document.getElementById("excel-path").textContent = excel.path.split(/[\\/]/).pop();
+  }
+}
+
+async function limparCache() {
+  await fetch(`${API}/api/cache/clear`);
+  if (ondaAtual) renderDashboard();
+}
+
+// ── Render principal ──────────────────────────────────────────────────────────
+async function renderDashboard() {
+  if (!ondaAtual) return;
+  const main = document.getElementById("main");
+  main.innerHTML = `<div class="loading">Carregando dados da Onda ${ondaAtual}...</div>`;
+
+  const ocvs = document.getElementById("sel-ocvs").value;
+  const qs   = ocvs ? `?ocvs=${ocvs}` : "";
+
+  const [resumo, depExt, status, topComm, grafo, servidores] = await Promise.all([
+    fetch(`${API}/api/onda/${ondaAtual}/resumo${qs}`).then(r => r.json()),
+    fetch(`${API}/api/onda/${ondaAtual}/dependencias-externas${qs}`).then(r => r.json()),
+    fetch(`${API}/api/onda/${ondaAtual}/status-migracao${qs}`).then(r => r.json()),
+    fetch(`${API}/api/onda/${ondaAtual}/top-comunicacoes${qs}`).then(r => r.json()),
+    fetch(`${API}/api/onda/${ondaAtual}/grafo${qs}`).then(r => r.json()),
+    fetch(`${API}/api/onda/${ondaAtual}/servidores-origem${qs}`).then(r => r.json()),
+  ]);
+
+  dadosGrafo = grafo;
+
+  main.innerHTML = `
+    <div class="cards-row">
+      ${cardHTML("Linhas processadas", fmt(resumo.total_linhas), "após aglutinação")}
+      ${cardHTML("Total de conexões", fmt(resumo.total_conexoes), "soma dos contadores")}
+      ${cardHTML("Servidores origem", fmt(resumo.servidores), "nesta onda")}
+      ${cardHTML("IPs remotos únicos", fmt(resumo.ips_remotos), "destinos distintos")}
+    </div>
+
+    <div id="alerta-dep">${depExt.length > 0
+      ? `<div class="alert">&#9888;&#65039; <strong>${depExt.length} dependências externas</strong> encontradas — servidores desta onda comunicando com IPs fora dela.</div>`
+      : ""}</div>
+
+    ${panelServidoresHTML(servidores)}
+
+    <div class="grid-2">
+      ${panelStatusHTML(status)}
+      ${panelTopHTML(topComm)}
+    </div>
+
+    ${panelDepExtHTML(depExt)}
+
+    ${panelGrafoHTML()}
+  `;
+
+  renderGrafo(grafo);
+}
+
+// ── Cards ─────────────────────────────────────────────────────────────────────
+function cardHTML(titulo, valor, sub) {
+  return `<div class="card">
+    <h2>${titulo}</h2>
+    <div class="valor">${valor}</div>
+    <div class="sub">${sub}</div>
+  </div>`;
+}
+
+function fmt(n) { return Number(n).toLocaleString("pt-BR"); }
+
+// ── Painel Status Migração ────────────────────────────────────────────────────
+function panelStatusHTML(status) {
+  const total = Object.values(status).reduce((s, v) => s + v.conexoes, 0);
+
+  // Map display label -> categoria key for drilldown
+  const categoriaMap = {
+    mesma_onda:    "mesma_onda",
+    onda_anterior: "onda_anterior",
+    onda_futura:   "onda_futura",
+    fora_ocvs:     "fora_ocvs",
+    nao_mapeado:   "nao_mapeado",
+  };
+
+  const bars = Object.entries(status).map(([k, v]) => {
+    const pct = total > 0 ? Math.round(v.conexoes * 100 / total) : 0;
+    const cat = categoriaMap[k] || k;
+    return `<div class="bar-item" onclick="abrirDrilldown('${cat}', '${v.label.replace(/'/g,"\\'")}')">
+      <div class="bar-label">
+        <span>${v.label}</span>
+        <span>${fmt(v.conexoes)} (${pct}%)</span>
+      </div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:${pct}%;background:${v.cor}"></div>
+      </div>
+    </div>`;
+  }).join("");
+
+  return `<div class="panel">
+    <h2>Status de Migração <span class="badge">por conexões — clique para detalhar</span></h2>
+    <div class="bar-wrap">${bars}</div>
+  </div>`;
+}
+
+// ── Painel Top Comunicações ───────────────────────────────────────────────────
+function panelTopHTML(top) {
+  const rows = top.slice(0, 15).map(r => `<tr>
+    <td>${r.hostname}</td>
+    <td>${r.ip_remoto}</td>
+    <td>${r.porta_remota}</td>
+    <td>${tagDirecao(r.direcao)}</td>
+    <td>${r.aplicacao || "-"}</td>
+    <td>${tagOcvs(r.ocvs)}</td>
+    <td class="contador-badge">${fmt(r.contador)}</td>
+  </tr>`).join("");
+
+  return `<div class="panel">
+    <h2>Top Comunicações <span class="badge">por volume</span></h2>
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr>
+        <th>Origem</th><th>IP Destino</th><th>Porta</th>
+        <th>Dir.</th><th>Aplicação</th><th>OCVS</th><th>Qtde</th>
+      </tr></thead>
+      <tbody>${rows || `<tr><td colspan="7" class="empty">Sem dados</td></tr>`}</tbody>
+    </table></div>
+  </div>`;
+}
+
+// ── Painel Dependências Externas ──────────────────────────────────────────────
+function panelDepExtHTML(dep) {
+  const rows = dep.map(r => `<tr>
+    <td>${r.hostname}</td>
+    <td>${r.ip_remoto}</td>
+    <td>${r.porta_remota}</td>
+    <td>${r.aplicacao || "-"}</td>
+    <td>${tagDirecao(r.direcao)}</td>
+    <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+        title="${r.onda_destino}">${r.onda_destino || "-"}</td>
+    <td class="contador-badge">${fmt(r.contador)}</td>
+  </tr>`).join("");
+
+  return `<div class="panel" id="panel-dep">
+    <h2>Dependências Externas <span class="badge">${dep.length} pares</span></h2>
+    <input class="search" placeholder="Filtrar por hostname, IP ou aplicação..."
+           oninput="filtrarDep(this.value, ${JSON.stringify(dep).replace(/</g,'\\u003c')})">
+    <div style="overflow-x:auto">
+    <table id="tbl-dep">
+      <thead><tr>
+        <th>Servidor origem</th><th>IP destino</th><th>Porta</th>
+        <th>Aplicação</th><th>Dir.</th><th>Onda destino</th><th>Qtde</th>
+      </tr></thead>
+      <tbody id="tbody-dep">${rows || `<tr><td colspan="7" class="empty">Nenhuma dependência externa encontrada</td></tr>`}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function filtrarDep(q, dep) {
+  const ql = q.toLowerCase();
+  const filtrado = q ? dep.filter(r =>
+    r.hostname.toLowerCase().includes(ql) ||
+    r.ip_remoto.toLowerCase().includes(ql) ||
+    (r.aplicacao || "").toLowerCase().includes(ql)
+  ) : dep;
+
+  document.getElementById("tbody-dep").innerHTML = filtrado.map(r => `<tr>
+    <td>${r.hostname}</td><td>${r.ip_remoto}</td><td>${r.porta_remota}</td>
+    <td>${r.aplicacao || "-"}</td><td>${tagDirecao(r.direcao)}</td>
+    <td title="${r.onda_destino}">${r.onda_destino || "-"}</td>
+    <td class="contador-badge">${fmt(r.contador)}</td>
+  </tr>`).join("") || `<tr><td colspan="7" class="empty">Sem resultados</td></tr>`;
+}
+
+// ── Painel Grafo ──────────────────────────────────────────────────────────────
+function panelGrafoHTML() {
+  return `<div class="panel">
+    <h2>Grafo de Dependências <span class="badge">top 300 arestas</span></h2>
+    <div class="tab-bar">
+      <button class="tab active" onclick="setGrafoFiltro('todos',this)">Todos</button>
+      <button class="tab" onclick="setGrafoFiltro('externos',this)">Só externos</button>
+      <button class="tab" onclick="setGrafoFiltro('ocvs',this)">Só OCVS</button>
+    </div>
+    <div class="grafo-container">
+      <canvas id="grafo-canvas"></canvas>
+    </div>
+    <div style="font-size:0.75rem;color:#475569;margin-top:8px">
+      Arraste para mover &bull; Scroll para zoom &bull; Hover para detalhes
+    </div>
+  </div>`;
+}
+
+// ── Tags ──────────────────────────────────────────────────────────────────────
+function tagOcvs(v) {
+  return v === "OCVS"
+    ? `<span class="tag tag-ocvs">OCVS</span>`
+    : `<span class="tag tag-fora">FORA</span>`;
+}
+function tagDirecao(v) {
+  if (v === "IN")  return `<span class="tag tag-in">IN</span>`;
+  if (v === "OUT") return `<span class="tag tag-out">OUT</span>`;
+  return `<span class="tag tag-analisar">?</span>`;
+}
+
+// ── Grafo Canvas ──────────────────────────────────────────────────────────────
+let grafoFiltro = "todos";
+function setGrafoFiltro(f, btn) {
+  grafoFiltro = f;
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  btn.classList.add("active");
+  if (dadosGrafo) renderGrafo(dadosGrafo);
+}
+
+function renderGrafo(data) {
+  const canvas = document.getElementById("grafo-canvas");
+  if (!canvas) return;
+  const container = canvas.parentElement;
+  canvas.width  = container.clientWidth;
+  canvas.height = container.clientHeight;
+  const ctx = canvas.getContext("2d");
+
+  let edges = data.edges;
+  if (grafoFiltro === "externos") edges = edges.filter(e => e.ocvs !== "OCVS");
+  if (grafoFiltro === "ocvs")     edges = edges.filter(e => e.ocvs === "OCVS");
+
+  const nosUsados = new Set();
+  edges.forEach(e => { nosUsados.add(e.source); nosUsados.add(e.target); });
+  const nos = data.nodes.filter(n => nosUsados.has(n.id));
+
+  if (nos.length === 0) {
+    ctx.fillStyle = "#475569"; ctx.font = "14px Segoe UI";
+    ctx.textAlign = "center";
+    ctx.fillText("Sem dados para exibir", canvas.width/2, canvas.height/2);
+    return;
+  }
+
+  const W = canvas.width, H = canvas.height;
+  const posicoes = new Map();
+  nos.forEach((n, i) => {
+    const angle = (i / nos.length) * Math.PI * 2;
+    const r = Math.min(W, H) * 0.35;
+    posicoes.set(n.id, {
+      x: W/2 + r * Math.cos(angle),
+      y: H/2 + r * Math.sin(angle),
+      vx: 0, vy: 0,
+    });
+  });
+
+  for (let iter = 0; iter < 80; iter++) {
+    nos.forEach(a => {
+      nos.forEach(b => {
+        if (a.id === b.id) return;
+        const pa = posicoes.get(a.id), pb = posicoes.get(b.id);
+        const dx = pa.x - pb.x, dy = pa.y - pb.y;
+        const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        const f = 1200 / (dist * dist);
+        pa.vx += dx/dist * f; pa.vy += dy/dist * f;
+      });
+    });
+    edges.forEach(e => {
+      const pa = posicoes.get(e.source), pb = posicoes.get(e.target);
+      if (!pa || !pb) return;
+      const dx = pb.x - pa.x, dy = pb.y - pa.y;
+      const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      const f = dist * 0.01;
+      pa.vx += dx/dist * f; pa.vy += dy/dist * f;
+      pb.vx -= dx/dist * f; pb.vy -= dy/dist * f;
+    });
+    nos.forEach(n => {
+      const p = posicoes.get(n.id);
+      p.x = Math.max(40, Math.min(W-40, p.x + p.vx * 0.3));
+      p.y = Math.max(40, Math.min(H-40, p.y + p.vy * 0.3));
+      p.vx *= 0.8; p.vy *= 0.8;
+    });
+  }
+
+  let offsetX = 0, offsetY = 0, scale = 1;
+  let dragging = false, lastX = 0, lastY = 0;
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
+
+    edges.forEach(e => {
+      const pa = posicoes.get(e.source), pb = posicoes.get(e.target);
+      if (!pa || !pb) return;
+      const alpha = Math.min(1, 0.15 + e.contador / 500);
+      ctx.strokeStyle = e.ocvs === "OCVS" ? `rgba(59,130,246,${alpha})` : `rgba(239,68,68,${alpha})`;
+      ctx.lineWidth = Math.min(4, 0.5 + e.contador / 200);
+      ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+    });
+
+    nos.forEach(n => {
+      const p = posicoes.get(n.id);
+      const isOrigem = n.tipo === "origem";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, isOrigem ? 8 : 6, 0, Math.PI*2);
+      ctx.fillStyle = isOrigem ? "#3b82f6" : (n.ocvs === "OCVS" ? "#22c55e" : "#ef4444");
+      ctx.fill();
+      ctx.strokeStyle = "#0f172a"; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = "#cbd5e1"; ctx.font = `${isOrigem ? 11 : 9}px Segoe UI`;
+      ctx.textAlign = "center";
+      ctx.fillText(n.id.length > 18 ? n.id.slice(0,16)+"…" : n.id, p.x, p.y - 10);
+    });
+
+    ctx.restore();
+  }
+
+  draw();
+
+  canvas.onmousedown = e => { dragging = true; lastX = e.clientX; lastY = e.clientY; };
+  canvas.onmouseup   = () => { dragging = false; };
+  canvas.onmousemove = e => {
+    if (dragging) {
+      offsetX += e.clientX - lastX; offsetY += e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY; draw();
+    }
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left - offsetX) / scale;
+    const my = (e.clientY - rect.top  - offsetY) / scale;
+    const tt = document.getElementById("tooltip");
+    let found = false;
+    nos.forEach(n => {
+      const p = posicoes.get(n.id);
+      if (Math.hypot(mx - p.x, my - p.y) < 12) {
+        tt.style.display = "block";
+        tt.style.left = (e.clientX + 12) + "px";
+        tt.style.top  = (e.clientY + 12) + "px";
+        tt.innerHTML = `<strong>${n.id}</strong><br>Tipo: ${n.tipo}<br>Onda: ${n.onda || "—"}<br>OCVS: ${n.ocvs}`;
+        found = true;
+      }
+    });
+    if (!found) tt.style.display = "none";
+  };
+  canvas.onwheel = e => {
+    e.preventDefault();
+    scale *= e.deltaY < 0 ? 1.1 : 0.9;
+    draw();
+  };
+}
+
+// ── Painel Servidores de Origem ───────────────────────────────────────────────
+function buildTreeLinhas(servidores) {
+  return servidores.map((h, hi) => {
+    const apps = h.aplicacoes.map((a, ai) => {
+      const ips = a.ips.map((i, ii) => {
+        const portas = i.portas.map(p => `
+          <div class="tree-row tree-porta">
+            <span>${p.fmt}</span>
+            <span class="tree-num est">${p.ESTABLISHED ? fmt(p.ESTABLISHED) : ""}</span>
+            <span class="tree-num syn">${p.SYN_SENT    ? fmt(p.SYN_SENT)    : ""}</span>
+            <span class="tree-num tot">${fmt(p.ESTABLISHED + p.SYN_SENT)}</span>
+          </div>`).join("");
+
+        return `<div class="tree-node" id="ip-${hi}-${ai}-${ii}">
+          <div class="tree-row tree-ip" onclick="toggleNode('ip-${hi}-${ai}-${ii}')">
+            <span><span class="tree-toggle">▶</span>${i.ip}</span>
+            <span class="tree-num est">${i.ESTABLISHED ? fmt(i.ESTABLISHED) : ""}</span>
+            <span class="tree-num syn">${i.SYN_SENT    ? fmt(i.SYN_SENT)    : ""}</span>
+            <span class="tree-num tot">${fmt(i.ESTABLISHED + i.SYN_SENT)}</span>
+          </div>
+          <div class="tree-children" style="display:none">${portas}</div>
+        </div>`;
+      }).join("");
+
+      return `<div class="tree-node" id="ap-${hi}-${ai}">
+        <div class="tree-row tree-aplicacao" onclick="toggleNode('ap-${hi}-${ai}')">
+          <span><span class="tree-toggle">▶</span>${a.nome}</span>
+          <span class="tree-num est">${a.ESTABLISHED ? fmt(a.ESTABLISHED) : ""}</span>
+          <span class="tree-num syn">${a.SYN_SENT    ? fmt(a.SYN_SENT)    : ""}</span>
+          <span class="tree-num tot">${fmt(a.ESTABLISHED + a.SYN_SENT)}</span>
+        </div>
+        <div class="tree-children" style="display:none">${ips}</div>
+      </div>`;
+    }).join("");
+
+    return `<div class="tree-node" id="sv-${hi}">
+      <div class="tree-row tree-servidor" onclick="toggleNode('sv-${hi}')">
+        <span><span class="tree-toggle">▶</span>${h.hostname}</span>
+        <span class="tree-num est">${h.ESTABLISHED ? fmt(h.ESTABLISHED) : ""}</span>
+        <span class="tree-num syn">${h.SYN_SENT    ? fmt(h.SYN_SENT)    : ""}</span>
+        <span class="tree-num tot">${fmt(h.ESTABLISHED + h.SYN_SENT)}</span>
+      </div>
+      <div class="tree-children" style="display:none">${apps}</div>
+    </div>`;
+  }).join("");
+}
+
+async function recarregarServidores() {
+  const ocvs    = document.getElementById("sel-ocvs").value;
+  const semOnda = document.getElementById("chk-sem-onda").checked;
+
+  const params = new URLSearchParams();
+  if (ocvs)    params.set("ocvs", ocvs);
+  if (semOnda) params.set("semOnda", "1");
+  const qs = params.toString() ? "?" + params.toString() : "";
+
+  document.getElementById("tree-body").innerHTML = `<div class="loading">Atualizando...</div>`;
+
+  const servidores = await fetch(`${API}/api/onda/${ondaAtual}/servidores-origem${qs}`).then(r => r.json());
+
+  document.getElementById("tree-body").innerHTML = buildTreeLinhas(servidores);
+
+  const totalEst = servidores.reduce((s, r) => s + r.ESTABLISHED, 0);
+  const totalSyn = servidores.reduce((s, r) => s + r.SYN_SENT, 0);
+  const totalRow = document.getElementById("tree-total");
+  totalRow.querySelector(".est").textContent = fmt(totalEst);
+  totalRow.querySelector(".syn").textContent = fmt(totalSyn);
+  totalRow.querySelector(".tot").textContent = fmt(totalEst + totalSyn);
+}
+
+function panelServidoresHTML(servidores) {
+  const totalEst = servidores.reduce((s, r) => s + r.ESTABLISHED, 0);
+  const totalSyn = servidores.reduce((s, r) => s + r.SYN_SENT, 0);
+
+  return `<div class="panel" id="painel-servidores">
+    <h2>Servidores de Origem <span class="badge">ESTABLISHED + SYN_SENT apenas</span></h2>
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
+      <input class="search" id="srv-search" placeholder="Filtrar por hostname..."
+             oninput="filtrarServidores(this.value)" style="margin:0;flex:1">
+      <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#94a3b8;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="chk-sem-onda" onchange="recarregarServidores()"
+               style="width:14px;height:14px;cursor:pointer;accent-color:#ef4444">
+        Apenas "Sem Onda Agendada"
+      </label>
+    </div>
+    <div class="tree">
+      <div class="tree-row tree-header">
+        <span>Servidor / Aplicação / IP Remoto</span>
+        <span class="tree-num est">ESTABLISHED</span>
+        <span class="tree-num syn">SYN_SENT</span>
+        <span class="tree-num tot">Total</span>
+      </div>
+      <div id="tree-body">${buildTreeLinhas(servidores)}</div>
+      <div id="tree-total" class="tree-row tree-servidor" style="border-left-color:#475569;margin-top:8px;cursor:default">
+        <span>Total Geral</span>
+        <span class="tree-num est">${fmt(totalEst)}</span>
+        <span class="tree-num syn">${fmt(totalSyn)}</span>
+        <span class="tree-num tot">${fmt(totalEst + totalSyn)}</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleNode(id) {
+  const node = document.getElementById(id);
+  if (!node) return;
+  const children = node.querySelector(".tree-children");
+  const toggle   = node.querySelector(".tree-toggle");
+  if (!children) return;
+  const isOpen = children.style.display !== "none";
+  children.style.display = isOpen ? "none" : "block";
+  if (toggle) toggle.textContent = isOpen ? "▶" : "▼";
+}
+
+function filtrarServidores(q) {
+  const ql = q.toLowerCase();
+  document.querySelectorAll("#tree-body > .tree-node").forEach(node => {
+    const label = node.querySelector(".tree-servidor span:first-child").textContent.toLowerCase();
+    node.style.display = (!ql || label.includes(ql)) ? "" : "none";
+  });
+}
+
+
+async function abrirDrilldown(categoria, label) {
+  const ocvs = document.getElementById("sel-ocvs").value;
+  const qs   = ocvs ? `?ocvs=${ocvs}` : "";
+
+  const modal = document.getElementById("modal-root");
+  modal.innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)fecharModal()">
+      <div class="modal">
+        <div class="modal-header">
+          <div>
+            <h3>Drilldown &mdash; ${label}</h3>
+            <div class="sub">Clique fora ou pressione Esc para fechar</div>
+          </div>
+          <button class="modal-close" onclick="fecharModal()">&#x2715;</button>
+        </div>
+        <div class="modal-search">
+          <input class="search" id="drill-search" placeholder="Filtrar por hostname, IP, aplicação..."
+                 oninput="filtrarDrill(this.value)" style="margin:0">
+        </div>
+        <div class="modal-body">
+          <div class="loading">Carregando...</div>
+        </div>
+      </div>
+    </div>`;
+
+  const dados = await fetch(`${API}/api/onda/${ondaAtual}/drilldown/${categoria}${qs}`)
+    .then(r => r.json());
+
+  window._drillDados = dados;
+  renderDrillTabela(dados);
+  document.getElementById("drill-search").focus();
+}
+
+function renderDrillTabela(dados) {
+  const rows = dados.map(r => `<tr>
+    <td>${r.hostname}</td>
+    <td>${r.ip_remoto}</td>
+    <td>${r.porta_remota}</td>
+    <td>${r.aplicacao || r.processo || "-"}</td>
+    <td>${tagDirecao(r.direcao)}</td>
+    <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+        title="${r.onda_origem}">${r.onda_origem || "-"}</td>
+    <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+        title="${r.onda_destino}">${r.onda_destino || "-"}</td>
+    <td>${tagOcvs(r.ocvs)}</td>
+    <td class="contador-badge">${fmt(r.contador)}</td>
+  </tr>`).join("");
+
+  document.querySelector(".modal-body").innerHTML = `
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr>
+        <th>Servidor origem</th><th>IP destino</th><th>Porta</th>
+        <th>Aplicação</th><th>Dir.</th><th>Onda origem</th><th>Onda destino</th>
+        <th>OCVS</th><th>Qtde</th>
+      </tr></thead>
+      <tbody>${rows || `<tr><td colspan="9" class="empty">Sem dados</td></tr>`}</tbody>
+    </table></div>
+    <div style="padding:10px 20px;font-size:0.75rem;color:#475569">
+      ${fmt(dados.length)} registros &middot; ${fmt(dados.reduce((s,r)=>s+r.contador,0))} conexões
+    </div>`;
+}
+
+function filtrarDrill(q) {
+  const ql = q.toLowerCase();
+  const filtrado = q ? window._drillDados.filter(r =>
+    r.hostname.toLowerCase().includes(ql) ||
+    r.ip_remoto.toLowerCase().includes(ql) ||
+    (r.aplicacao || r.processo || "").toLowerCase().includes(ql) ||
+    (r.onda_destino || "").toLowerCase().includes(ql)
+  ) : window._drillDados;
+  renderDrillTabela(filtrado);
+}
+
+function fecharModal() {
+  window._execRunning = false;
+  document.getElementById("modal-root").innerHTML = "";
+}
+
+// ── Execução de scripts ───────────────────────────────────────────────────────
+function abrirExecucao(script) {
+  window._execRunning = false;  // reset ao abrir novo modal
+  const titulo   = script === "coletar" ? "Coletar Onda" : "Processar Onda";
+  const cor      = script === "coletar" ? "#16a34a" : "#7c3aed";
+  const temSenha = script === "coletar";
+
+  document.getElementById("modal-root").innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)fecharModal()">
+      <div class="modal">
+        <div class="modal-header">
+          <div><h3>${titulo}</h3><div class="sub">Output em tempo real</div></div>
+          <button class="modal-close" onclick="fecharModal()">&#x2715;</button>
+        </div>
+        <div style="padding:16px 20px;border-bottom:1px solid #334155">
+          <div class="form-row">
+            <input id="exec-onda" type="text" placeholder="Número da onda (ex: 2)" value="${ondaAtual || ''}">
+            ${temSenha ? `
+            <input id="exec-usuario" type="text" placeholder="Usuário SSH" value="migracao">
+            <input id="exec-senha" type="password" placeholder="Senha SSH">
+            ` : ""}
+            <button class="btn-exec btn-run" id="btn-run" onclick="executarScript('${script}')"
+                    style="background:${cor}">&#9654; Executar</button>
+          </div>
+        </div>
+        <div class="modal-body" style="padding:0">
+          <div class="terminal" id="terminal">
+            <span class="info">Preencha os campos e clique em Executar.</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function executarScript(script) {
+  const onda    = document.getElementById("exec-onda").value.trim();
+  const usuario = document.getElementById("exec-usuario")?.value.trim() || "migracao";
+  const senha   = document.getElementById("exec-senha")?.value || "";
+
+  if (!onda) { alert("Informe o número da onda."); return; }
+
+  const btn = document.getElementById("btn-run");
+  btn.disabled = true;
+  btn.textContent = "Executando...";
+
+  const term = document.getElementById("terminal");
+  term.innerHTML = "";
+
+  // Prevenir duplo envio
+  if (window._execRunning) return;
+  window._execRunning = true;
+
+  const addLinha = (linha, tipo) => {
+    // Detectar tipo pela linha se nao informado
+    if (!tipo || tipo === "log") {
+      const l = linha.trim();
+      if (/^\s*v /.test(l) || /sucesso|concluido|ok\b/i.test(l))  tipo = "sucesso";
+      else if (/^\s*x /.test(l) || /falha|erro|fail/i.test(l))    tipo = "erro";
+      else if (/^\s*! /.test(l) || /aviso|warn|aten/i.test(l))    tipo = "warn";
+      else if (/^={3,}|^-{3,}/.test(l))                           tipo = "sep";
+      else if (/iniciando|lendo|organizando|consolidando|adicionando|verificando|copiando|transferindo|extraindo/i.test(l)) tipo = "info";
+    }
+    const span = document.createElement("span");
+    span.className = tipo || "log";
+    span.textContent = linha;
+    term.appendChild(span);
+    term.appendChild(document.createElement("br"));
+    term.scrollTop = term.scrollHeight;
+  };
+
+  try {
+    const resp = await fetch(`${API}/api/executar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ script, onda, usuario, senha }),
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop();
+      for (const ev of events) {
+        const dataLine = ev.split("\n").find(l => l.startsWith("data:"));
+        if (!dataLine) continue;
+        try {
+          const obj = JSON.parse(dataLine.slice(5));
+          if (obj.tipo === "fim") {
+            btn.disabled = false;
+            btn.textContent = "▶ Executar";
+            // Atualizar lista de ondas
+            const ondas = await fetch(`${API}/api/ondas`).then(r => r.json());
+            const sel = document.getElementById("sel-onda");
+            sel.innerHTML = '<option value="">-- selecione --</option>';
+            ondas.forEach(o => {
+              const opt = document.createElement("option");
+              opt.value = o; opt.textContent = `Onda ${o}`;
+              sel.appendChild(opt);
+            });
+          } else {
+            addLinha(obj.linha, obj.tipo);
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {
+    addLinha("Erro de conexão: " + e.message, "erro");
+    btn.disabled = false;
+    btn.textContent = "▶ Executar";
+    window._execRunning = false;
+  }
+}
+
+
+
+init();
+</script>
+</body>
+</html>
