@@ -231,7 +231,7 @@ async function renderDashboard() {
     <div class="cards-row">
       ${cardHTML("Linhas processadas", fmt(resumo.total_linhas), "após aglutinação")}
       ${cardHTML("Total de conexões", fmt(resumo.total_conexoes), "soma dos contadores")}
-      ${cardHTML("Servidores origem", fmt(resumo.servidores), "nesta onda")}
+      ${cardHTML("Servidores na onda", fmt(resumo.servidores_previstos || "—"), `${fmt(resumo.servidores)} com dados processados`)}
       ${cardHTML("IPs remotos únicos", fmt(resumo.ips_remotos), "destinos distintos")}
     </div>
 
@@ -324,8 +324,13 @@ function panelTopHTML(top) {
 }
 
 // ── Painel Dependências Externas ──────────────────────────────────────────────
-function panelDepExtHTML(dep) {
-  const rows = dep.map(r => `<tr>
+const DEP_PAGE_SIZE = 15;
+let _depDados = [];
+let _depFiltrado = [];
+let _depPagina = 0;
+
+function rowDep(r) {
+  return `<tr>
     <td>${r.hostname}</td>
     <td>${r.ip_remoto}</td>
     <td>${r.porta_remota}</td>
@@ -334,12 +339,45 @@ function panelDepExtHTML(dep) {
     <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
         title="${r.onda_destino}">${r.onda_destino || "-"}</td>
     <td class="contador-badge">${fmt(r.contador)}</td>
-  </tr>`).join("");
+  </tr>`;
+}
+
+function renderDepRows() {
+  const fim = (_depPagina + 1) * DEP_PAGE_SIZE;
+  const visivel = _depFiltrado.slice(0, fim);
+  const tbody = document.getElementById("tbody-dep");
+  if (tbody) tbody.innerHTML = visivel.length
+    ? visivel.map(rowDep).join("")
+    : `<tr><td colspan="7" class="empty">Nenhuma dependência externa encontrada</td></tr>`;
+
+  const btnMais = document.getElementById("btn-dep-mais");
+  if (btnMais) {
+    if (fim < _depFiltrado.length) {
+      btnMais.style.display = "";
+      btnMais.textContent = `Carregar mais (${_depFiltrado.length - fim} restantes)`;
+    } else {
+      btnMais.style.display = "none";
+    }
+  }
+}
+
+function carregarMaisDep() {
+  _depPagina++;
+  renderDepRows();
+}
+
+function panelDepExtHTML(dep) {
+  _depDados    = dep;
+  _depFiltrado = dep;
+  _depPagina   = 0;
+
+  const rows = dep.slice(0, DEP_PAGE_SIZE).map(rowDep).join("");
+  const temMais = dep.length > DEP_PAGE_SIZE;
 
   return `<div class="panel" id="panel-dep">
     <h2>Dependências Externas <span class="badge">${dep.length} pares</span></h2>
     <input class="search" placeholder="Filtrar por hostname, IP ou aplicação..."
-           oninput="filtrarDep(this.value, ${JSON.stringify(dep).replace(/</g,'\\u003c')})">
+           oninput="filtrarDep(this.value)">
     <div style="overflow-x:auto">
     <table id="tbl-dep">
       <thead><tr>
@@ -348,23 +386,25 @@ function panelDepExtHTML(dep) {
       </tr></thead>
       <tbody id="tbody-dep">${rows || `<tr><td colspan="7" class="empty">Nenhuma dependência externa encontrada</td></tr>`}</tbody>
     </table></div>
+    <div style="text-align:center;margin-top:12px">
+      <button id="btn-dep-mais" class="btn-refresh"
+              style="display:${temMais ? '' : 'none'};background:#334155;font-size:0.82rem"
+              onclick="carregarMaisDep()">
+        Carregar mais (${dep.length - DEP_PAGE_SIZE} restantes)
+      </button>
+    </div>
   </div>`;
 }
 
-function filtrarDep(q, dep) {
+function filtrarDep(q) {
   const ql = q.toLowerCase();
-  const filtrado = q ? dep.filter(r =>
+  _depFiltrado = q ? _depDados.filter(r =>
     r.hostname.toLowerCase().includes(ql) ||
     r.ip_remoto.toLowerCase().includes(ql) ||
     (r.aplicacao || "").toLowerCase().includes(ql)
-  ) : dep;
-
-  document.getElementById("tbody-dep").innerHTML = filtrado.map(r => `<tr>
-    <td>${r.hostname}</td><td>${r.ip_remoto}</td><td>${r.porta_remota}</td>
-    <td>${r.aplicacao || "-"}</td><td>${tagDirecao(r.direcao)}</td>
-    <td title="${r.onda_destino}">${r.onda_destino || "-"}</td>
-    <td class="contador-badge">${fmt(r.contador)}</td>
-  </tr>`).join("") || `<tr><td colspan="7" class="empty">Sem resultados</td></tr>`;
+  ) : _depDados;
+  _depPagina = 0;
+  renderDepRows();
 }
 
 // ── Painel Grafo ──────────────────────────────────────────────────────────────

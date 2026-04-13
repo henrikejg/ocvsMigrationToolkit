@@ -479,11 +479,39 @@ const server = http.createServer((req, res) => {
       return respJson(res, calcServidoresOrigem(dados, semOnda));
     }
     if (endpoint === "resumo") {
+      const excelPath = encontrarExcel();
+      let servidoresPrevistos = 0;
+      if (excelPath) {
+        try {
+          const wb  = getXLSX().readFile(excelPath, { cellText: true, cellDates: false });
+          const ws  = wb.Sheets["vInfo"];
+          if (ws) {
+            const rows = getXLSX().utils.sheet_to_json(ws, { header: 1 });
+            const header = rows[0] || [];
+            let colVM = -1, colOnda = -1;
+            header.forEach((v, i) => {
+              const s = String(v || "").trim();
+              if (s === "VM")   colVM   = i;
+              if (s === "ONDA") colOnda = i;
+            });
+            if (colVM >= 0 && colOnda >= 0) {
+              servidoresPrevistos = rows.slice(1).filter(r => {
+                const vm   = String(r[colVM]   || "").trim();
+                const onda = String(r[colOnda] || "").trim();
+                return vm && vm !== "None" && vm !== "A definir" &&
+                       new RegExp(`Onda\\s+${numero}\\b`, "i").test(onda);
+              }).length;
+            }
+          }
+        } catch {}
+      }
+      const servidoresProcessados = [...new Set(dados.map(r => r.hostname))].length;
       return respJson(res, {
-        total_linhas:  dados.length,
-        total_conexoes: dados.reduce((s, r) => s + r.contador, 0),
-        servidores:    [...new Set(dados.map(r => r.hostname))].length,
-        ips_remotos:   [...new Set(dados.map(r => r.ip_remoto))].length,
+        total_linhas:          dados.length,
+        total_conexoes:        dados.reduce((s, r) => s + r.contador, 0),
+        servidores:            servidoresProcessados,
+        servidores_previstos:  servidoresPrevistos,
+        ips_remotos:           [...new Set(dados.map(r => r.ip_remoto))].length,
       });
     }
     // drilldown: /api/onda/99/drilldown/nao_mapeado
