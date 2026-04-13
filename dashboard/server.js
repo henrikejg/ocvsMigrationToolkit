@@ -258,9 +258,17 @@ function calcTopComunicacoes(dados) {
   return [...grupos.values()].sort((a, b) => b.contador - a.contador).slice(0, 50);
 }
 
-function calcServidoresOrigem(dados, apenasSemdOnda = false) {
+function calcServidoresOrigem(dados, apenasSemdOnda = false, esconderDispensaveis = false) {
+  const IPS_DISPENSAVEIS = new Set([
+    "10.62.169.11", "10.62.169.12", "10.62.169.13", "10.62.169.14", "10.62.169.25"
+  ]);
+
   // Filtrar apenas ESTABLISHED e SYN_SENT
   let filtrado = dados.filter(r => r.estado === "ESTABLISHED" || r.estado === "SYN_SENT");
+
+  if (esconderDispensaveis) {
+    filtrado = filtrado.filter(r => !IPS_DISPENSAVEIS.has(r.ip_remoto));
+  }
 
   // Filtro opcional: apenas conexoes sem onda agendada no destino
   // Mesmo critério do calcStatusMigracao para categoria "nao_mapeado"
@@ -475,8 +483,9 @@ const server = http.createServer((req, res) => {
     if (endpoint === "top-comunicacoes")      return respJson(res, calcTopComunicacoes(dados));
     if (endpoint === "grafo")                 return respJson(res, calcGrafo(dados));
     if (endpoint === "servidores-origem") {
-      const semOnda = params.get("semOnda") === "1";
-      return respJson(res, calcServidoresOrigem(dados, semOnda));
+      const semOnda            = params.get("semOnda")            === "1";
+      const esconderDispensaveis = params.get("esconderDispensaveis") === "1";
+      return respJson(res, calcServidoresOrigem(dados, semOnda, esconderDispensaveis));
     }
     if (endpoint === "resumo") {
       const excelPath = encontrarExcel();
