@@ -903,36 +903,110 @@ function fecharModal() {
 
 // ── Execução de scripts ───────────────────────────────────────────────────────
 function abrirExecucao(script) {
-  window._execRunning = false;  // reset ao abrir novo modal
-  const titulo   = script === "coletar" ? "Coletar Onda" : "Processar Onda";
-  const cor      = script === "coletar" ? "#16a34a" : "#7c3aed";
-  const temSenha = script === "coletar";
+  window._execRunning = false;
+  const titulo = script === "coletar" ? "Coletar Onda" : "Processar Onda";
+  const cor    = script === "coletar" ? "#16a34a" : "#7c3aed";
 
   document.getElementById("modal-root").innerHTML = `
     <div class="modal-overlay">
       <div class="modal">
         <div class="modal-header">
-          <div><h3>${titulo}</h3><div class="sub">Output em tempo real</div></div>
+          <div><h3>${titulo}</h3><div class="sub" id="exec-sub">Preencha os campos abaixo</div></div>
           <button class="modal-close" onclick="fecharModal()">&#x2715;</button>
         </div>
         <div style="padding:16px 20px;border-bottom:1px solid #334155">
           <div class="form-row">
             <input id="exec-onda" type="text" placeholder="Número da onda (ex: 2)" value="${ondaAtual || ''}">
-            ${temSenha ? `
+            ${script === "coletar" ? `
             <input id="exec-usuario" type="text" placeholder="Usuário SSH" value="migracao">
-            <input id="exec-senha" type="password" placeholder="Senha SSH">
-            ` : ""}
+            <div style="position:relative;flex:1;min-width:140px">
+              <input id="exec-senha" type="password" placeholder="Senha SSH"
+                     style="width:100%;padding-right:36px">
+              <button onmousedown="document.getElementById('exec-senha').type='text'"
+                      onmouseup="document.getElementById('exec-senha').type='password'"
+                      onmouseleave="document.getElementById('exec-senha').type='password'"
+                      style="position:absolute;right:6px;top:50%;transform:translateY(-50%);
+                             background:none;border:none;cursor:pointer;color:#64748b;
+                             font-size:1rem;padding:2px;line-height:1;user-select:none"
+                      title="Manter pressionado para ver a senha">&#128065;</button>
+            </div>
+            <button class="btn-exec btn-run" id="btn-carregar" onclick="carregarServidores()"
+                    style="background:#0369a1">&#128269; Carregar Servidores</button>
+            ` : `
             <button class="btn-exec btn-run" id="btn-run" onclick="executarScript('${script}')"
                     style="background:${cor}">&#9654; Executar</button>
+            `}
           </div>
+          <div id="lista-servidores" style="display:none;margin-top:12px"></div>
         </div>
         <div class="modal-body" style="padding:0">
           <div class="terminal" id="terminal">
-            <span class="info">Preencha os campos e clique em Executar.</span>
+            <span class="info">Preencha os campos e clique em ${script === "coletar" ? "Carregar Servidores" : "Executar"}.</span>
           </div>
         </div>
       </div>
     </div>`;
+}
+
+async function carregarServidores() {
+  const onda = document.getElementById("exec-onda").value.trim();
+  if (!onda) { alert("Informe o número da onda."); return; }
+
+  const btn = document.getElementById("btn-carregar");
+  btn.disabled = true; btn.textContent = "Carregando...";
+
+  const servidores = await fetch(`${API}/api/onda-servidores/${onda}`).then(r => r.json());
+
+  btn.disabled = false; btn.textContent = "↻ Recarregar";
+
+  if (servidores.erro || !servidores.length) {
+    document.getElementById("lista-servidores").innerHTML =
+      `<div style="color:#f87171;font-size:0.85rem">${servidores.erro || "Nenhum servidor encontrado para esta onda."}</div>`;
+    document.getElementById("lista-servidores").style.display = "";
+    return;
+  }
+
+  const items = servidores.map((s, i) => `
+    <label style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:4px;cursor:pointer;font-size:0.83rem"
+           onmouseover="this.style.background='#263348'" onmouseout="this.style.background=''">
+      <input type="checkbox" class="chk-servidor" value="${s.ip}" checked
+             onchange="sincronizarMestre()"
+             style="width:14px;height:14px;accent-color:#22c55e;cursor:pointer">
+      <span style="color:#f1f5f9;font-weight:500">${s.hostname || s.ip}</span>
+      <span style="color:#64748b">${s.hostname ? s.ip : ""}</span>
+    </label>`).join("");
+
+  document.getElementById("lista-servidores").innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.82rem;color:#94a3b8">
+        <input type="checkbox" id="chk-todos" checked onchange="toggleTodos(this.checked)"
+               style="width:14px;height:14px;accent-color:#3b82f6;cursor:pointer">
+        <span>${servidores.length} servidores</span>
+      </label>
+    </div>
+    <div style="max-height:180px;overflow-y:auto;border:1px solid #334155;border-radius:6px;padding:4px">${items}</div>
+    <div style="margin-top:12px;text-align:right">
+      <button class="btn-exec btn-run" id="btn-run" onclick="executarScript('coletar')" style="background:#16a34a">
+        &#9654; Executar Coleta
+      </button>
+    </div>`;
+  document.getElementById("lista-servidores").style.display = "";
+  document.getElementById("exec-sub").textContent = "Selecione os servidores e clique em Executar Coleta";
+}
+
+function toggleTodos(marcar) {
+  document.querySelectorAll(".chk-servidor").forEach(c => c.checked = marcar);
+  const mestre = document.getElementById("chk-todos");
+  if (mestre) mestre.checked = marcar;
+}
+
+function sincronizarMestre() {
+  const todos   = [...document.querySelectorAll(".chk-servidor")];
+  const mestre  = document.getElementById("chk-todos");
+  if (!mestre) return;
+  const marcados = todos.filter(c => c.checked).length;
+  mestre.checked       = marcados === todos.length;
+  mestre.indeterminate = marcados > 0 && marcados < todos.length;
 }
 
 async function executarScript(script) {
@@ -941,6 +1015,14 @@ async function executarScript(script) {
   const senha   = document.getElementById("exec-senha")?.value || "";
 
   if (!onda) { alert("Informe o número da onda."); return; }
+
+  // Coletar IPs selecionados (apenas para coleta)
+  let servidoresSelecionados = "";
+  if (script === "coletar") {
+    const chks = [...document.querySelectorAll(".chk-servidor:checked")];
+    if (chks.length === 0) { alert("Selecione ao menos um servidor."); return; }
+    servidoresSelecionados = chks.map(c => c.value).join(",");
+  }
 
   const btn = document.getElementById("btn-run");
   btn.disabled = true;
@@ -975,7 +1057,7 @@ async function executarScript(script) {
     const resp = await fetch(`${API}/api/executar`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ script, onda, usuario, senha }),
+      body: JSON.stringify({ script, onda, usuario, senha, servidoresSelecionados }),
     });
 
     const reader = resp.body.getReader();

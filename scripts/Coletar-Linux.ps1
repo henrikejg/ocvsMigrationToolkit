@@ -31,7 +31,8 @@ param(
     [string]$ArquivoExcel = "",
     [string]$Destino      = "",
     [string]$Usuario      = "migracao",
-    [string]$Senha        = ""
+    [string]$Senha        = "",
+    [string]$ServidoresSelecionados = ""  # IPs separados por virgula; vazio = todos
 )
 
 # Resolver Destino aqui, depois do param, onde $PSScriptRoot ja esta disponivel
@@ -41,6 +42,11 @@ if (-not $Destino) {
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Continue"
+
+# Suprimir codigos ANSI de cor no output (para logs limpos quando rodando headless)
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    $PSStyle.OutputRendering = [System.Management.Automation.OutputRendering]::PlainText
+}
 
 # Resolver caminhos relativos com base no diretorio de trabalho atual
 if ($ArquivoExcel) {
@@ -316,7 +322,16 @@ if (-not $servidores -or $servidores.Count -eq 0) {
     exit 1
 }
 
-Write-Host "Servidores encontrados: $($servidores.Count)"
+# Filtrar apenas os IPs selecionados, se informado
+if ($ServidoresSelecionados) {
+    $filtro = @($ServidoresSelecionados -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $totalOnda = $servidores.Count
+    $servidores = @($servidores | Where-Object { $filtro -contains $_ })
+    Write-Host "Servidores selecionados para coleta: $($servidores.Count) de $totalOnda"
+} else {
+    Write-Host "Servidores encontrados: $($servidores.Count)"
+}
+
 foreach ($s in $servidores) { Write-Host "  - $s" }
 Write-Sep
 

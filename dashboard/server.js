@@ -465,7 +465,40 @@ const server = http.createServer((req, res) => {
     return respJson(res, { ok: true });
   }
 
-  // Listar logs de execucao
+  // Listar IPs de uma onda sem executar coleta
+  if (urlPath.match(/^\/api\/onda-servidores\/\w+$/) && req.method === "GET") {
+    const numero = urlPath.split("/").pop();
+    const excelPath = encontrarExcel();
+    if (!excelPath) return respJson(res, { erro: "Excel não encontrado" }, 404);
+    try {
+      const wb   = getXLSX().readFile(excelPath, { cellText: true, cellDates: false });
+      const ws   = wb.Sheets["vInfo"];
+      if (!ws) return respJson(res, { erro: "Aba vInfo não encontrada" }, 404);
+      const rows = getXLSX().utils.sheet_to_json(ws, { header: 1 });
+      const hdr  = rows[0] || [];
+      let colVM = -1, colIP = -1, colOnda = -1;
+      hdr.forEach((v, i) => {
+        const s = String(v || "").trim();
+        if (s === "VM")                 colVM   = i;
+        else if (/IP|Address/i.test(s)) colIP   = i;
+        else if (s === "ONDA")          colOnda = i;
+      });
+      const servidores = rows.slice(1)
+        .filter(r => {
+          const onda = String(r[colOnda] || "").trim();
+          const ip   = String(r[colIP]   || "").trim();
+          return new RegExp(`Onda\\s+${numero}\\b`, "i").test(onda) &&
+                 ip && ip !== "None" && ip !== "A definir";
+        })
+        .map(r => ({
+          hostname: String(r[colVM] || "").trim(),
+          ip:       String(r[colIP] || "").trim(),
+        }));
+      return respJson(res, servidores);
+    } catch (e) {
+      return respJson(res, { erro: e.message }, 500);
+    }
+  }
   if (urlPath === "/api/logs") {
     try {
       if (!fs.existsSync(LOGS_DIR)) return respJson(res, []);
@@ -619,7 +652,7 @@ const server = http.createServer((req, res) => {
       let params;
       try { params = JSON.parse(body); } catch { res.writeHead(400); res.end("JSON invalido"); return; }
 
-      const { script, onda, usuario, senha } = params;
+      const { script, onda, usuario, senha, servidoresSelecionados } = params;
       const scriptMap = { "coletar": "Coletar-Linux.ps1", "processar": "Processar-Onda.ps1" };
       const scriptFile = scriptMap[script];
       if (!scriptFile) { res.writeHead(400); res.end("Script desconhecido"); return; }
@@ -640,6 +673,7 @@ const server = http.createServer((req, res) => {
 
       const senhaArg   = (script === "coletar" && senha)   ? " -Senha '" + senha.replace(/'/g, "''") + "'" : "";
       const usuarioArg = (script === "coletar" && usuario) ? " -Usuario '" + usuario + "'" : "";
+      const selArg     = (script === "coletar" && servidoresSelecionados) ? " -ServidoresSelecionados '" + servidoresSelecionados + "'" : "";
 
       const PWSH_REAL = process.env.OCVS_PWSH && fs.existsSync(process.env.OCVS_PWSH)
         ? process.env.OCVS_PWSH
@@ -647,7 +681,7 @@ const server = http.createServer((req, res) => {
 
       const tmpScript = path.join(require("os").tmpdir(), "ocvs_" + Date.now() + ".ps1");
       fs.writeFileSync(tmpScript,
-        "& '" + scriptPath.replace(/'/g, "''") + "' -NumeroOnda '" + onda + "'" + usuarioArg + senhaArg + "\n",
+        "& '" + scriptPath.replace(/'/g, "''") + "' -NumeroOnda '" + onda + "'" + usuarioArg + senhaArg + selArg + "\n",
         "utf8");
 
       sendLine("Iniciando " + scriptFile + " para Onda " + onda + "...", "info");
