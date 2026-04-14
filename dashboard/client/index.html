@@ -222,7 +222,7 @@ async function renderDashboard() {
     fetch(`${API}/api/onda/${ondaAtual}/status-migracao${qs}`).then(r => r.json()),
     fetch(`${API}/api/onda/${ondaAtual}/top-comunicacoes${qs}`).then(r => r.json()),
     fetch(`${API}/api/onda/${ondaAtual}/grafo${qs}`).then(r => r.json()),
-    fetch(`${API}/api/onda/${ondaAtual}/servidores-origem${qs}`).then(r => r.json()),
+    fetch(`${API}/api/onda/${ondaAtual}/servidores-origem${qs}&semOnda=1&esconderDispensaveis=1`).then(r => r.json()),
   ]);
 
   dadosGrafo = grafo;
@@ -659,13 +659,13 @@ function panelServidoresHTML(servidores) {
              oninput="filtrarServidores(this.value)" style="margin:0;flex:1">
       <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#94a3b8;cursor:pointer;white-space:nowrap">
         <input type="checkbox" id="chk-sem-onda" onchange="recarregarServidores()"
-               style="width:14px;height:14px;cursor:pointer;accent-color:#ef4444">
-        Apenas "Sem Onda Agendada"
+               checked style="width:14px;height:14px;cursor:pointer;accent-color:#ef4444">
+        Ignorar Onda atual e passadas
       </label>
       <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#94a3b8;cursor:pointer;white-space:nowrap">
         <input type="checkbox" id="chk-dispensaveis" onchange="recarregarServidores()"
-               style="width:14px;height:14px;cursor:pointer;accent-color:#f59e0b">
-        Esconder comunicações dispensáveis
+               checked style="width:14px;height:14px;cursor:pointer;accent-color:#f59e0b">
+        Ignorar AD/Zabbix
       </label>
     </div>
     <div class="tree">
