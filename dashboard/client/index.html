@@ -156,6 +156,7 @@
     <button class="btn-refresh" onclick="limparCache()">&#8635; Recarregar</button>
     <button class="btn-refresh" style="background:#16a34a" onclick="abrirExecucao('coletar')">&#9660; Coletar</button>
     <button class="btn-refresh" style="background:#7c3aed" onclick="abrirExecucao('processar')">&#9654; Processar</button>
+    <button class="btn-refresh" style="background:#0f172a;border:1px solid #334155" onclick="abrirLogs()">&#128196; Logs</button>
   </div>
 </header>
 
@@ -216,13 +217,14 @@ async function renderDashboard() {
   const ocvs = document.getElementById("sel-ocvs").value;
   const qs   = ocvs ? `?ocvs=${ocvs}` : "";
 
-  const [resumo, depExt, status, topComm, grafo, servidores] = await Promise.all([
+  const [resumo, depExt, status, topComm, grafo, servidores, pizza] = await Promise.all([
     fetch(`${API}/api/onda/${ondaAtual}/resumo${qs}`).then(r => r.json()),
     fetch(`${API}/api/onda/${ondaAtual}/dependencias-externas${qs}`).then(r => r.json()),
     fetch(`${API}/api/onda/${ondaAtual}/status-migracao${qs}`).then(r => r.json()),
     fetch(`${API}/api/onda/${ondaAtual}/top-comunicacoes${qs}`).then(r => r.json()),
     fetch(`${API}/api/onda/${ondaAtual}/grafo${qs}`).then(r => r.json()),
     fetch(`${API}/api/onda/${ondaAtual}/servidores-origem${qs}&semOnda=1&esconderDispensaveis=1`).then(r => r.json()),
+    fetch(`${API}/api/onda/${ondaAtual}/resumo-geral`).then(r => r.json()),
   ]);
 
   dadosGrafo = grafo;
@@ -242,7 +244,9 @@ async function renderDashboard() {
     ${panelServidoresHTML(servidores)}
 
     <div class="grid-2">
-      ${panelStatusHTML(status)}
+      <div style="display:flex;flex-direction:column;gap:20px">
+        ${panelPizzaHTML(pizza)}
+      </div>
       ${panelTopHTML(topComm)}
     </div>
 
@@ -252,6 +256,7 @@ async function renderDashboard() {
   `;
 
   renderGrafo(grafo);
+  renderPizza(pizza);
 }
 
 // ── Cards ─────────────────────────────────────────────────────────────────────
@@ -706,6 +711,117 @@ function filtrarServidores(q) {
 }
 
 
+// ── Gráfico de Pizza (Donut) ──────────────────────────────────────────────────
+function panelPizzaHTML(d) {
+  return `<div class="panel">
+    <h2>Visão Geral das Comunicações <span class="badge">total — ignora filtro de tipo</span></h2>
+    <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap">
+      <div style="position:relative;flex-shrink:0">
+        <canvas id="pizza-canvas" width="200" height="200"></canvas>
+        <div id="pizza-center" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none"></div>
+      </div>
+      <div id="pizza-legenda" style="flex:1;display:flex;flex-direction:column;gap:6px;font-size:0.83rem;min-width:200px"></div>
+    </div>
+  </div>`;
+}
+
+function renderPizza(d) {
+  const canvas = document.getElementById("pizza-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const cx = W/2, cy = H/2;
+  const rOuter = Math.min(W,H)/2 - 8;
+  const rInner = rOuter * 0.52;
+
+  const fatias = [
+    { label: "Externa — rede privada", valor: d.externoPrivado, cor: "#475569", cat: "fora_ocvs" },
+    { label: "Externa — IP público",   valor: d.externoPublico, cor: "#94a3b8", cat: "fora_ocvs" },
+    { label: "Ondas anteriores",       valor: d.ondaAnterior,   cor: "#3b82f6", cat: "onda_anterior" },
+    { label: "Mesma onda",             valor: d.mesmaOnda,      cor: "#22c55e", cat: "mesma_onda" },
+    { label: "Vão causar problemas",   valor: d.problema,       cor: "#ef4444", cat: "nao_mapeado" },
+  ].filter(f => f.valor > 0);
+
+  const total = fatias.reduce((s, f) => s + f.valor, 0);
+  if (total === 0) return;
+
+  canvas._fatias = [];
+  let angulo = -Math.PI / 2;
+
+  fatias.forEach(f => {
+    const sweep = (f.valor / total) * Math.PI * 2;
+    const aStart = angulo, aEnd = angulo + sweep;
+
+    ctx.shadowColor = "rgba(0,0,0,0.35)";
+    ctx.shadowBlur  = 8;
+    ctx.beginPath();
+    ctx.moveTo(cx + rInner * Math.cos(aStart), cy + rInner * Math.sin(aStart));
+    ctx.arc(cx, cy, rOuter, aStart, aEnd);
+    ctx.arc(cx, cy, rInner, aEnd, aStart, true);
+    ctx.closePath();
+    ctx.fillStyle = f.cor;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#0f172a";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    canvas._fatias.push({ ...f, aStart, aEnd });
+    angulo += sweep;
+  });
+
+  const center = document.getElementById("pizza-center");
+  if (center) {
+    center.innerHTML = '<div style="font-size:1.1rem;font-weight:700;color:#f1f5f9">' + fmt(total) + '</div><div style="font-size:0.65rem;color:#64748b">conexoes</div>';
+  }
+
+  const leg = document.getElementById("pizza-legenda");
+  if (leg) {
+    leg.innerHTML = fatias.map(f => {
+      const pct = Math.round(f.valor * 100 / total);
+      return '<div onclick="abrirDrilldown(\'' + f.cat + '\',\'' + f.label.replace(/'/g,"\\'") + '\')" '
+        + 'style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;cursor:pointer;border-left:3px solid ' + f.cor + ';transition:background 0.15s" '
+        + 'onmouseover="this.style.background=\'#263348\'" onmouseout="this.style.background=\'\'">'
+        + '<div style="flex:1">'
+        + '<div style="color:#e2e8f0;font-weight:500">' + f.label + '</div>'
+        + '<div style="color:#64748b;font-size:0.75rem;margin-top:2px">' + fmt(f.valor) + ' conexoes</div>'
+        + '</div>'
+        + '<div style="font-size:1.1rem;font-weight:700;color:' + f.cor + '">' + pct + '%</div>'
+        + '</div>';
+    }).join("");
+  }
+
+  canvas.onmousemove = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left - cx, my = e.clientY - rect.top - cy;
+    const dist = Math.sqrt(mx*mx + my*my);
+    if (dist < rInner || dist > rOuter) { canvas.style.cursor = "default"; return; }
+    let ang = Math.atan2(my, mx);
+    if (ang < -Math.PI/2) ang += Math.PI*2;
+    const hit = canvas._fatias.find(f => {
+      const s = f.aStart < -Math.PI/2 ? f.aStart + Math.PI*2 : f.aStart;
+      const en = f.aEnd < -Math.PI/2 ? f.aEnd + Math.PI*2 : f.aEnd;
+      return ang >= s && ang <= en;
+    });
+    canvas.style.cursor = hit ? "pointer" : "default";
+  };
+
+  canvas.onclick = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left - cx, my = e.clientY - rect.top - cy;
+    const dist = Math.sqrt(mx*mx + my*my);
+    if (dist < rInner || dist > rOuter) return;
+    let ang = Math.atan2(my, mx);
+    if (ang < -Math.PI/2) ang += Math.PI*2;
+    const hit = canvas._fatias.find(f => {
+      const s = f.aStart < -Math.PI/2 ? f.aStart + Math.PI*2 : f.aStart;
+      const en = f.aEnd < -Math.PI/2 ? f.aEnd + Math.PI*2 : f.aEnd;
+      return ang >= s && ang <= en;
+    });
+    if (hit) abrirDrilldown(hit.cat, hit.label);
+  };
+}
+
 async function abrirDrilldown(categoria, label) {
   const ocvs = document.getElementById("sel-ocvs").value;
   const qs   = ocvs ? `?ocvs=${ocvs}` : "";
@@ -793,7 +909,7 @@ function abrirExecucao(script) {
   const temSenha = script === "coletar";
 
   document.getElementById("modal-root").innerHTML = `
-    <div class="modal-overlay" onclick="if(event.target===this)fecharModal()">
+    <div class="modal-overlay">
       <div class="modal">
         <div class="modal-header">
           <div><h3>${titulo}</h3><div class="sub">Output em tempo real</div></div>
@@ -906,6 +1022,74 @@ async function executarScript(script) {
 
 
 init();
+
+// ── Logs de execução ──────────────────────────────────────────────────────────
+async function abrirLogs() {
+  const logs = await fetch(`${API}/api/logs`).then(r => r.json());
+
+  const linhas = logs.length ? logs.map(l => {
+    const dt   = new Date(l.inicio).toLocaleString("pt-BR");
+    const dur  = l.fim ? Math.round((new Date(l.fim) - new Date(l.inicio)) / 1000) + "s" : "em andamento";
+    const ok   = l.exitCode === 0;
+    const cor  = ok ? "#22c55e" : l.exitCode === null ? "#f59e0b" : "#ef4444";
+    const icone = ok ? "v" : l.exitCode === null ? "..." : "x";
+    return `<div onclick="abrirLogDetalhe('${l.id}')"
+                 style="display:flex;align-items:center;gap:12px;padding:10px 14px;
+                        border-radius:6px;cursor:pointer;border-left:3px solid ${cor}"
+                 onmouseover="this.style.background='#263348'" onmouseout="this.style.background=''">
+      <span style="color:${cor};font-size:1rem;width:16px">${icone}</span>
+      <div style="flex:1">
+        <div style="color:#f1f5f9;font-weight:500">${l.script} &mdash; Onda ${l.onda}</div>
+        <div style="color:#64748b;font-size:0.75rem;margin-top:2px">${dt} &middot; ${dur}</div>
+      </div>
+      <span style="color:#475569;font-size:0.75rem">&#9654;</span>
+    </div>`;
+  }).join("") : `<div class="empty" style="padding:20px">Nenhuma execução registrada ainda.</div>`;
+
+  document.getElementById("modal-root").innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)fecharModal()">
+      <div class="modal" style="max-width:700px">
+        <div class="modal-header">
+          <div><h3>Histórico de Execuções</h3><div class="sub">Clique em uma entrada para ver o log completo</div></div>
+          <button class="modal-close" onclick="fecharModal()">&#x2715;</button>
+        </div>
+        <div class="modal-body" style="padding:12px 16px;display:flex;flex-direction:column;gap:6px">
+          ${linhas}
+        </div>
+      </div>
+    </div>`;
+}
+
+async function abrirLogDetalhe(id) {
+  const log = await fetch(`${API}/api/logs/${id}`).then(r => r.json());
+  const dt  = new Date(log.inicio).toLocaleString("pt-BR");
+  const dur = log.fim ? Math.round((new Date(log.fim) - new Date(log.inicio)) / 1000) + "s" : "em andamento";
+
+  const linhasHtml = (log.linhas || []).map(l =>
+    `<span class="${l.tipo || 'log'}">${String(l.linha).replace(/</g,"&lt;")}</span><br>`
+  ).join("");
+
+  document.getElementById("modal-root").innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)fecharModal()">
+      <div class="modal">
+        <div class="modal-header">
+          <div>
+            <h3>${log.script} &mdash; Onda ${log.onda}</h3>
+            <div class="sub">${dt} &middot; ${dur} &middot; exit ${log.exitCode ?? "&mdash;"}</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn-refresh" style="background:#334155;font-size:0.8rem" onclick="abrirLogs()">&#8592; Voltar</button>
+            <button class="modal-close" onclick="fecharModal()">&#x2715;</button>
+          </div>
+        </div>
+        <div class="modal-body" style="padding:0">
+          <div class="terminal" style="height:450px;border-radius:0">${linhasHtml}</div>
+        </div>
+      </div>
+    </div>`;
+
+  setTimeout(() => { const t = document.querySelector(".terminal"); if (t) t.scrollTop = t.scrollHeight; }, 50);
+}
 </script>
 </body>
 </html>

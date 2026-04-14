@@ -9,6 +9,7 @@ const path    = require("path");
 const { execSync, spawn } = require("child_process");
 
 const SCRIPTS_DIR = path.join(path.resolve(__dirname, ".."), "scripts");
+const LOGS_DIR    = path.join(path.resolve(__dirname, ".."), "dados", "logs");
 
 // Resolver path curto via symlink se disponivel (evita problemas com paths longos com espacos)
 function resolverPathCurto(p) {
@@ -464,6 +465,33 @@ const server = http.createServer((req, res) => {
     return respJson(res, { ok: true });
   }
 
+  // Listar logs de execucao
+  if (urlPath === "/api/logs") {
+    try {
+      if (!fs.existsSync(LOGS_DIR)) return respJson(res, []);
+      const logs = fs.readdirSync(LOGS_DIR)
+        .filter(f => f.endsWith(".json"))
+        .map(f => {
+          try {
+            const meta = JSON.parse(fs.readFileSync(path.join(LOGS_DIR, f), "utf8"));
+            return { id: f.replace(".json",""), ...meta, linhas: undefined };
+          } catch { return null; }
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.inicio.localeCompare(a.inicio));
+      return respJson(res, logs);
+    } catch { return respJson(res, []); }
+  }
+
+  const mLog = urlPath.match(/^\/api\/logs\/(.+)$/);
+  if (mLog) {
+    const logFile = path.join(LOGS_DIR, mLog[1] + ".json");
+    if (!fs.existsSync(logFile)) return respJson(res, { erro: "Log não encontrado" }, 404);
+    try {
+      return respJson(res, JSON.parse(fs.readFileSync(logFile, "utf8")));
+    } catch { return respJson(res, { erro: "Erro ao ler log" }, 500); }
+  }
+
   const mOnda = urlPath.match(/^\/api\/onda\/(\w+)\/(.+)$/);
   if (mOnda) {
     const [, numero, endpoint] = mOnda;
@@ -488,6 +516,59 @@ const server = http.createServer((req, res) => {
       const esconderDispensaveis = params.get("esconderDispensaveis") === "1";
       return respJson(res, calcServidoresOrigem(dados, semOnda, esconderDispensaveis));
     }
+    if (endpoint === "resumo-geral") {
+      // Ignora filtro de tipo de conexao — usa dados brutos completos
+      const dadosBrutos = lerProcessado(numero);
+      if (!dadosBrutos) return respJson(res, { erro: "Onda não encontrada" }, 404);
+
+      const IPS_DISPENSAVEIS = new Set([
+        "10.62.169.11","10.62.169.12","10.62.169.13","10.62.169.14","10.62.169.25"
+      ]);
+
+      // Verificar se IP é privado (RFC 1918 + loopback + link-local)
+      function isPrivado(ip) {
+        if (!ip) return false;
+        const p = ip.split(".").map(Number);
+        if (p[0] === 10) return true;
+        if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
+        if (p[0] === 192 && p[1] === 168) return true;
+        if (p[0] === 127) return true;
+        if (p[0] === 169 && p[1] === 254) return true;
+        return false;
+      }
+
+      let externoPrivado = 0, externoPublico = 0;
+      let ondaAnterior = 0, mesmaOnda = 0, problema = 0;
+
+      for (const r of dadosBrutos) {
+        const c  = r.contador;
+        const od = r.onda_destino || "";
+        const oo = r.onda_origem  || "";
+
+        if (r.ocvs !== "OCVS") {
+          if (isPrivado(r.ip_remoto)) externoPrivado += c;
+          else                        externoPublico  += c;
+          continue;
+        }
+
+        const mDest = od.match(/Onda\s+(\d+)/i);
+        const mOrig = oo.match(/Onda\s+(\d+)/i);
+        const nDest = mDest ? parseInt(mDest[1]) : null;
+        const nOrig = mOrig ? parseInt(mOrig[1]) : null;
+
+        if (nDest !== null && nOrig !== null && nDest === nOrig) { mesmaOnda += c; continue; }
+        if (nDest !== null && nOrig !== null && nDest < nOrig)   { ondaAnterior += c; continue; }
+
+        if ((r.estado === "ESTABLISHED" || r.estado === "SYN_SENT") &&
+            !IPS_DISPENSAVEIS.has(r.ip_remoto) &&
+            (!od || !/Onda\s+\d+/i.test(od) || od === "A definir")) {
+          problema += c;
+        }
+      }
+
+      return respJson(res, { externoPrivado, externoPublico, ondaAnterior, mesmaOnda, problema });
+    }
+
     if (endpoint === "resumo") {
       const excelPath = encontrarExcel();
       let servidoresPrevistos = 0;
@@ -572,19 +653,43 @@ const server = http.createServer((req, res) => {
       sendLine("Iniciando " + scriptFile + " para Onda " + onda + "...", "info");
       console.log("[exec]", PWSH_REAL, tmpScript, "cwd=" + scriptsCwd);
 
+      // Estrutura do log
+      if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+      const logId   = new Date().toISOString().replace(/[:.]/g,"-").slice(0,19);
+      const logFile = path.join(LOGS_DIR, logId + ".json");
+      const logData = {
+        id:      logId,
+        script:  scriptFile,
+        onda,
+        usuario: usuario || "",
+        inicio:  new Date().toISOString(),
+        fim:     null,
+        exitCode: null,
+        linhas:  [],
+      };
+      const appendLog = (linha, tipo) => {
+        logData.linhas.push({ tipo: tipo || "log", linha });
+        fs.writeFileSync(logFile, JSON.stringify(logData), "utf8");
+      };
+      appendLog("Iniciando " + scriptFile + " para Onda " + onda + "...", "info");
+
       // Usar detached:true para desacoplar do processo pai (Node filho de PS7)
       const proc = spawn(PWSH_REAL,
         ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmpScript],
         { cwd: scriptsCwd, windowsHide: true, detached: false, stdio: ["ignore", "pipe", "pipe"] }
       );
 
-      proc.stdout.on("data", d => d.toString().split(/\r?\n/).filter(Boolean).forEach(l => sendLine(l)));
-      proc.stderr.on("data", d => d.toString().split(/\r?\n/).filter(Boolean).forEach(l => sendLine(l, "erro")));
-      proc.on("error", err => sendLine("Erro: " + err.message, "erro"));
+      proc.stdout.on("data", d => d.toString().split(/\r?\n/).filter(Boolean).forEach(l => { sendLine(l); appendLog(l); }));
+      proc.stderr.on("data", d => d.toString().split(/\r?\n/).filter(Boolean).forEach(l => { sendLine(l, "erro"); appendLog(l, "erro"); }));
+      proc.on("error", err => { sendLine("Erro: " + err.message, "erro"); appendLog("Erro: " + err.message, "erro"); });
       proc.on("close", code => {
         try { fs.unlinkSync(tmpScript); } catch {}
         console.log("[close]", code);
-        sendLine("Processo encerrado (exit " + code + ")", code === 0 ? "sucesso" : "erro");
+        logData.fim      = new Date().toISOString();
+        logData.exitCode = code;
+        const msg = "Processo encerrado (exit " + code + ")";
+        appendLog(msg, code === 0 ? "sucesso" : "erro");
+        sendLine(msg, code === 0 ? "sucesso" : "erro");
         try { res.write("data: {\"tipo\":\"fim\"}\n\n"); res.end(); } catch {}
         cache.delete("processado_" + onda);
       });
