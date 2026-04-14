@@ -10,3 +10,6 @@ dashboard/node_modules/
 # Arquivos temporários
 *.tmp
 *.log
+
+# logs da aplicacao
+dados/logs/
