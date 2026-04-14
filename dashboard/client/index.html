@@ -613,7 +613,7 @@ function buildTreeLinhas(servidores) {
 
     return `<div class="tree-node" id="sv-${hi}">
       <div class="tree-row tree-servidor" onclick="toggleNode('sv-${hi}')">
-        <span><span class="tree-toggle">▶</span>${h.hostname}</span>
+        <span><span class="tree-toggle">▶</span>${h.hostname}${h.ip_local ? ` <span style="color:#64748b;font-weight:400">(${h.ip_local})</span>` : ""}</span>
         <span class="tree-num est">${h.ESTABLISHED ? fmt(h.ESTABLISHED) : ""}</span>
         <span class="tree-num syn">${h.SYN_SENT    ? fmt(h.SYN_SENT)    : ""}</span>
         <span class="tree-num tot">${fmt(h.ESTABLISHED + h.SYN_SENT)}</span>

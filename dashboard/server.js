@@ -292,7 +292,7 @@ function calcServidoresOrigem(dados, apenasSemdOnda = false, esconderDispensavei
     const est = r.estado;
     const cnt = r.contador;
 
-    if (!arvore.has(h)) arvore.set(h, { hostname: h, ESTABLISHED: 0, SYN_SENT: 0, aplicacoes: new Map() });
+    if (!arvore.has(h)) arvore.set(h, { hostname: h, ip_local: r.ip_local, ESTABLISHED: 0, SYN_SENT: 0, aplicacoes: new Map() });
     const nH = arvore.get(h);
     nH[est] = (nH[est] || 0) + cnt;
 
@@ -314,6 +314,7 @@ function calcServidoresOrigem(dados, apenasSemdOnda = false, esconderDispensavei
     .sort((a, b) => (b.ESTABLISHED + b.SYN_SENT) - (a.ESTABLISHED + a.SYN_SENT))
     .map(h => ({
       hostname:    h.hostname,
+      ip_local:    h.ip_local,
       ESTABLISHED: h.ESTABLISHED,
       SYN_SENT:    h.SYN_SENT,
       aplicacoes: [...h.aplicacoes.values()]
