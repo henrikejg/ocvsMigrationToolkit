@@ -180,7 +180,6 @@
 <script>
 const API = "";
 let ondaAtual = "";
-let dadosGrafo = null;
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 async function init() {
@@ -217,17 +216,18 @@ async function renderDashboard() {
   const ocvs = document.getElementById("sel-ocvs").value;
   const qs   = ocvs ? `?ocvs=${ocvs}` : "";
 
-  const [resumo, depExt, status, topComm, grafo, servidores, pizza] = await Promise.all([
-    fetch(`${API}/api/onda/${ondaAtual}/resumo${qs}`).then(r => r.json()),
-    fetch(`${API}/api/onda/${ondaAtual}/dependencias-externas${qs}`).then(r => r.json()),
-    fetch(`${API}/api/onda/${ondaAtual}/status-migracao${qs}`).then(r => r.json()),
-    fetch(`${API}/api/onda/${ondaAtual}/top-comunicacoes${qs}`).then(r => r.json()),
-    fetch(`${API}/api/onda/${ondaAtual}/grafo${qs}`).then(r => r.json()),
-    fetch(`${API}/api/onda/${ondaAtual}/servidores-origem${qs}&semOnda=1&esconderDispensaveis=1`).then(r => r.json()),
-    fetch(`${API}/api/onda/${ondaAtual}/resumo-geral`).then(r => r.json()),
-  ]);
+  const fetchOp = (url) => fetch(url).then(r => r.json());
 
-  dadosGrafo = grafo;
+  // Carregar resumo primeiro — popula o cache da onda
+  // Os demais requests aguardam o cache estar pronto
+  const resumo = await fetchOp(`${API}/api/onda/${ondaAtual}/resumo${qs}`);
+
+  const [status, topComm, servidores, pizza] = await Promise.all([
+    fetchOp(`${API}/api/onda/${ondaAtual}/status-migracao${qs}`),
+    fetchOp(`${API}/api/onda/${ondaAtual}/top-comunicacoes${qs}`),
+    fetchOp(`${API}/api/onda/${ondaAtual}/servidores-origem${qs ? qs + '&' : '?'}semOnda=1&esconderDispensaveis=1`),
+    fetchOp(`${API}/api/onda/${ondaAtual}/resumo-geral`),
+  ]);
 
   main.innerHTML = `
     <div class="cards-row">
@@ -236,10 +236,6 @@ async function renderDashboard() {
       ${cardHTML("Servidores na onda", fmt(resumo.servidores_previstos || "—"), `${fmt(resumo.servidores)} com dados processados`)}
       ${cardHTML("IPs remotos únicos", fmt(resumo.ips_remotos), "destinos distintos")}
     </div>
-
-    <div id="alerta-dep">${depExt.length > 0
-      ? `<div class="alert">&#9888;&#65039; <strong>${depExt.length} dependências externas</strong> encontradas — servidores desta onda comunicando com IPs fora dela.</div>`
-      : ""}</div>
 
     ${panelServidoresHTML(servidores)}
 
@@ -250,12 +246,9 @@ async function renderDashboard() {
       ${panelTopHTML(topComm)}
     </div>
 
-    ${panelDepExtHTML(depExt)}
-
-    ${panelGrafoHTML()}
+    ${panelDepExtColapsavel()}
   `;
 
-  renderGrafo(grafo);
   renderPizza(pizza);
 }
 
@@ -371,7 +364,51 @@ function carregarMaisDep() {
   renderDepRows();
 }
 
-function panelDepExtHTML(dep) {
+function panelDepExtColapsavel() {
+  return `<div class="panel" id="panel-dep-wrap">
+    <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer"
+         onclick="expandirDepExt()">
+      <h2 style="margin:0">Dependências Externas <span class="badge">clique para carregar</span></h2>
+      <span id="dep-toggle" style="color:#64748b;font-size:1.2rem">&#9660;</span>
+    </div>
+    <div id="dep-conteudo" style="display:none;margin-top:16px">
+      <div class="loading">Carregando...</div>
+    </div>
+  </div>`;
+}
+
+async function expandirDepExt() {
+  const conteudo = document.getElementById("dep-conteudo");
+  const toggle   = document.getElementById("dep-toggle");
+  if (!conteudo) return;
+
+  // Toggle: se ja expandido, colapsar
+  if (conteudo.style.display !== "none") {
+    conteudo.style.display = "none";
+    if (toggle) toggle.innerHTML = "&#9660;";
+    return;
+  }
+
+  conteudo.style.display = "block";
+  if (toggle) toggle.innerHTML = "&#9650;";
+
+  // Se ja tem dados carregados, nao recarregar
+  if (conteudo.dataset.loaded === "1") return;
+
+  const ocvs = document.getElementById("sel-ocvs").value;
+  const qs   = ocvs ? "?ocvs=" + ocvs : "";
+  const dep  = await fetch(API + "/api/onda/" + ondaAtual + "/dependencias-externas" + qs).then(r => r.json());
+  conteudo.dataset.loaded = "1";
+  conteudo.innerHTML = panelDepExtInner(dep);
+
+  // Mostrar alerta se houver dependencias
+  if (dep.length > 0) {
+    const wrap = document.getElementById("panel-dep-wrap");
+    if (wrap) wrap.style.borderColor = "#7f1d1d";
+  }
+}
+
+function panelDepExtInner(dep) {
   _depDados    = dep;
   _depFiltrado = dep;
   _depPagina   = 0;
@@ -379,9 +416,7 @@ function panelDepExtHTML(dep) {
   const rows = dep.slice(0, DEP_PAGE_SIZE).map(rowDep).join("");
   const temMais = dep.length > DEP_PAGE_SIZE;
 
-  return `<div class="panel" id="panel-dep">
-    <h2>Dependências Externas <span class="badge">${dep.length} pares</span></h2>
-    <input class="search" placeholder="Filtrar por hostname, IP ou aplicação..."
+  return `<input class="search" placeholder="Filtrar por hostname, IP ou aplicação..."
            oninput="filtrarDep(this.value)">
     <div style="overflow-x:auto">
     <table id="tbl-dep">
@@ -397,8 +432,7 @@ function panelDepExtHTML(dep) {
               onclick="carregarMaisDep()">
         Carregar mais (${dep.length - DEP_PAGE_SIZE} restantes)
       </button>
-    </div>
-  </div>`;
+    </div>`;
 }
 
 function filtrarDep(q) {
@@ -412,24 +446,6 @@ function filtrarDep(q) {
   renderDepRows();
 }
 
-// ── Painel Grafo ──────────────────────────────────────────────────────────────
-function panelGrafoHTML() {
-  return `<div class="panel">
-    <h2>Grafo de Dependências <span class="badge">top 300 arestas</span></h2>
-    <div class="tab-bar">
-      <button class="tab active" onclick="setGrafoFiltro('todos',this)">Todos</button>
-      <button class="tab" onclick="setGrafoFiltro('externos',this)">Só externos</button>
-      <button class="tab" onclick="setGrafoFiltro('ocvs',this)">Só OCVS</button>
-    </div>
-    <div class="grafo-container">
-      <canvas id="grafo-canvas"></canvas>
-    </div>
-    <div style="font-size:0.75rem;color:#475569;margin-top:8px">
-      Arraste para mover &bull; Scroll para zoom &bull; Hover para detalhes
-    </div>
-  </div>`;
-}
-
 // ── Tags ──────────────────────────────────────────────────────────────────────
 function tagOcvs(v) {
   return v === "OCVS"
@@ -440,145 +456,6 @@ function tagDirecao(v) {
   if (v === "IN")  return `<span class="tag tag-in">IN</span>`;
   if (v === "OUT") return `<span class="tag tag-out">OUT</span>`;
   return `<span class="tag tag-analisar">?</span>`;
-}
-
-// ── Grafo Canvas ──────────────────────────────────────────────────────────────
-let grafoFiltro = "todos";
-function setGrafoFiltro(f, btn) {
-  grafoFiltro = f;
-  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-  btn.classList.add("active");
-  if (dadosGrafo) renderGrafo(dadosGrafo);
-}
-
-function renderGrafo(data) {
-  const canvas = document.getElementById("grafo-canvas");
-  if (!canvas) return;
-  const container = canvas.parentElement;
-  canvas.width  = container.clientWidth;
-  canvas.height = container.clientHeight;
-  const ctx = canvas.getContext("2d");
-
-  let edges = data.edges;
-  if (grafoFiltro === "externos") edges = edges.filter(e => e.ocvs !== "OCVS");
-  if (grafoFiltro === "ocvs")     edges = edges.filter(e => e.ocvs === "OCVS");
-
-  const nosUsados = new Set();
-  edges.forEach(e => { nosUsados.add(e.source); nosUsados.add(e.target); });
-  const nos = data.nodes.filter(n => nosUsados.has(n.id));
-
-  if (nos.length === 0) {
-    ctx.fillStyle = "#475569"; ctx.font = "14px Segoe UI";
-    ctx.textAlign = "center";
-    ctx.fillText("Sem dados para exibir", canvas.width/2, canvas.height/2);
-    return;
-  }
-
-  const W = canvas.width, H = canvas.height;
-  const posicoes = new Map();
-  nos.forEach((n, i) => {
-    const angle = (i / nos.length) * Math.PI * 2;
-    const r = Math.min(W, H) * 0.35;
-    posicoes.set(n.id, {
-      x: W/2 + r * Math.cos(angle),
-      y: H/2 + r * Math.sin(angle),
-      vx: 0, vy: 0,
-    });
-  });
-
-  for (let iter = 0; iter < 80; iter++) {
-    nos.forEach(a => {
-      nos.forEach(b => {
-        if (a.id === b.id) return;
-        const pa = posicoes.get(a.id), pb = posicoes.get(b.id);
-        const dx = pa.x - pb.x, dy = pa.y - pb.y;
-        const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-        const f = 1200 / (dist * dist);
-        pa.vx += dx/dist * f; pa.vy += dy/dist * f;
-      });
-    });
-    edges.forEach(e => {
-      const pa = posicoes.get(e.source), pb = posicoes.get(e.target);
-      if (!pa || !pb) return;
-      const dx = pb.x - pa.x, dy = pb.y - pa.y;
-      const dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      const f = dist * 0.01;
-      pa.vx += dx/dist * f; pa.vy += dy/dist * f;
-      pb.vx -= dx/dist * f; pb.vy -= dy/dist * f;
-    });
-    nos.forEach(n => {
-      const p = posicoes.get(n.id);
-      p.x = Math.max(40, Math.min(W-40, p.x + p.vx * 0.3));
-      p.y = Math.max(40, Math.min(H-40, p.y + p.vy * 0.3));
-      p.vx *= 0.8; p.vy *= 0.8;
-    });
-  }
-
-  let offsetX = 0, offsetY = 0, scale = 1;
-  let dragging = false, lastX = 0, lastY = 0;
-
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-    ctx.save();
-    ctx.translate(offsetX, offsetY);
-    ctx.scale(scale, scale);
-
-    edges.forEach(e => {
-      const pa = posicoes.get(e.source), pb = posicoes.get(e.target);
-      if (!pa || !pb) return;
-      const alpha = Math.min(1, 0.15 + e.contador / 500);
-      ctx.strokeStyle = e.ocvs === "OCVS" ? `rgba(59,130,246,${alpha})` : `rgba(239,68,68,${alpha})`;
-      ctx.lineWidth = Math.min(4, 0.5 + e.contador / 200);
-      ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
-    });
-
-    nos.forEach(n => {
-      const p = posicoes.get(n.id);
-      const isOrigem = n.tipo === "origem";
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, isOrigem ? 8 : 6, 0, Math.PI*2);
-      ctx.fillStyle = isOrigem ? "#3b82f6" : (n.ocvs === "OCVS" ? "#22c55e" : "#ef4444");
-      ctx.fill();
-      ctx.strokeStyle = "#0f172a"; ctx.lineWidth = 1.5; ctx.stroke();
-      ctx.fillStyle = "#cbd5e1"; ctx.font = `${isOrigem ? 11 : 9}px Segoe UI`;
-      ctx.textAlign = "center";
-      ctx.fillText(n.id.length > 18 ? n.id.slice(0,16)+"…" : n.id, p.x, p.y - 10);
-    });
-
-    ctx.restore();
-  }
-
-  draw();
-
-  canvas.onmousedown = e => { dragging = true; lastX = e.clientX; lastY = e.clientY; };
-  canvas.onmouseup   = () => { dragging = false; };
-  canvas.onmousemove = e => {
-    if (dragging) {
-      offsetX += e.clientX - lastX; offsetY += e.clientY - lastY;
-      lastX = e.clientX; lastY = e.clientY; draw();
-    }
-    const rect = canvas.getBoundingClientRect();
-    const mx = (e.clientX - rect.left - offsetX) / scale;
-    const my = (e.clientY - rect.top  - offsetY) / scale;
-    const tt = document.getElementById("tooltip");
-    let found = false;
-    nos.forEach(n => {
-      const p = posicoes.get(n.id);
-      if (Math.hypot(mx - p.x, my - p.y) < 12) {
-        tt.style.display = "block";
-        tt.style.left = (e.clientX + 12) + "px";
-        tt.style.top  = (e.clientY + 12) + "px";
-        tt.innerHTML = `<strong>${n.id}</strong><br>Tipo: ${n.tipo}<br>Onda: ${n.onda || "—"}<br>OCVS: ${n.ocvs}`;
-        found = true;
-      }
-    });
-    if (!found) tt.style.display = "none";
-  };
-  canvas.onwheel = e => {
-    e.preventDefault();
-    scale *= e.deltaY < 0 ? 1.1 : 0.9;
-    draw();
-  };
 }
 
 // ── Painel Servidores de Origem ───────────────────────────────────────────────

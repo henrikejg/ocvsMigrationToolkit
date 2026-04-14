@@ -200,7 +200,7 @@ function Get-ServidorTipo {
 
 # ── Copiar com compressao tar+gzip ────────────────────────────────────────────
 function Copiar-ComCompressao {
-    param([string]$Servidor, [string]$DestinoLocal, [string]$NomeServidor)
+    param([string]$Servidor, [string]$DestinoLocal, [string]$NomeServidor, [string]$HostnameEsperado = "")
 
     $tempDir  = Join-Path $env:TEMP "netstat_coleta"
     $tempFile = Join-Path $tempDir "${NomeServidor}_netstat.tar.gz"
@@ -257,14 +257,20 @@ function Copiar-ComCompressao {
         # Extrair tar.gz — tar.exe nativo (Win10 1803+) ou fallback WSL
         Write-Host "`r    Extraindo...                    " -NoNewline
         $extraido = $false
+
+        # Listar arquivos dentro do tar para saber o nome exato que vai chegar
+        $arquivoNoTar = $null
         if (Get-Command tar -ErrorAction SilentlyContinue) {
-            tar xzf $tempFile -C $DestinoLocal 2>$null
+            $listaNoTar = tar tzf $tempFile 2>&1 | Where-Object { $_ -notmatch "^tar:" }
+            if ($listaNoTar) { $arquivoNoTar = ($listaNoTar | Where-Object { $_ -match "netstat_.*\.txt" } | Select-Object -First 1).Trim() }
+            tar xzf $tempFile -C $DestinoLocal 2>&1 | Out-Null
             $extraido = ($LASTEXITCODE -eq 0)
         }
         if (-not $extraido -and (Get-Command wsl -ErrorAction SilentlyContinue)) {
             $tmpWsl  = wsl wslpath ($tempFile     -replace '\\', '/')
             $destWsl = wsl wslpath ($DestinoLocal -replace '\\', '/')
-            wsl tar xzf $tmpWsl -C $destWsl
+            $arquivoNoTar = (wsl tar tzf $tmpWsl 2>&1 | Where-Object { $_ -match "netstat_.*\.txt" } | Select-Object -First 1)
+            wsl tar xzf $tmpWsl -C $destWsl 2>&1 | Out-Null
             $extraido = ($LASTEXITCODE -eq 0)
         }
 
@@ -273,6 +279,20 @@ function Copiar-ComCompressao {
             Write-Fail "Falha na extracao (tar nao disponivel)"
             Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
             return $false
+        }
+
+        # Normalizar nome — comparar o arquivo que chegou com o nome esperado
+        if ($HostnameEsperado -and $arquivoNoTar) {
+            $nomeEsperado  = "netstat_${HostnameEsperado}.txt"
+            $nomeRecebido  = Split-Path $arquivoNoTar -Leaf
+            if ($nomeRecebido -ne $nomeEsperado) {
+                $caminhoRecebido = Join-Path $DestinoLocal $nomeRecebido
+                $caminhoEsperado = Join-Path $DestinoLocal $nomeEsperado
+                if (Test-Path $caminhoRecebido) {
+                    Write-Host "    Renomeando '$nomeRecebido' -> '$nomeEsperado'" -ForegroundColor Yellow
+                    Move-Item -LiteralPath $caminhoRecebido -Destination $caminhoEsperado -Force
+                }
+            }
         }
 
         # Calcular tamanho original e estatisticas
@@ -322,6 +342,14 @@ if (-not $servidores -or $servidores.Count -eq 0) {
     exit 1
 }
 
+# Carregar mapa IP -> Hostname para normalizar nomes de arquivos
+$mapaIpHostname = @{}
+$hostnames = @(& "$scriptDir\Extrair-Hostnames.ps1" -NumeroOnda $NumeroOnda -ArquivoExcel $ArquivoExcel 2>$null)
+$ipsParaHostname = @(& "$scriptDir\Extrair-IPs.ps1" -NumeroOnda $NumeroOnda -ArquivoExcel $ArquivoExcel 2>$null)
+for ($i = 0; $i -lt [Math]::Min($ipsParaHostname.Count, $hostnames.Count); $i++) {
+    $mapaIpHostname[$ipsParaHostname[$i]] = $hostnames[$i]
+}
+
 # Filtrar apenas os IPs selecionados, se informado
 if ($ServidoresSelecionados) {
     $filtro = @($ServidoresSelecionados -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -352,6 +380,7 @@ $totalFalha         = 0
 foreach ($servidor in $servidores) {
     $totalServidores++
     $nomeServidor = $servidor -replace '\.', '_'
+    $hostnameEsperado = if ($mapaIpHostname.ContainsKey($servidor)) { $mapaIpHostname[$servidor] } else { $servidor }
 
     Write-Host "Verificando $servidor..."
     $tipo = Get-ServidorTipo -Servidor $servidor
@@ -361,7 +390,7 @@ foreach ($servidor in $servidores) {
             $totalLinux++
             Write-Ok "Servidor Linux detectado"
             Write-Host "  Copiando com compressao..."
-            if (Copiar-ComCompressao -Servidor $servidor -DestinoLocal $Destino -NomeServidor $nomeServidor) {
+            if (Copiar-ComCompressao -Servidor $servidor -DestinoLocal $Destino -NomeServidor $nomeServidor -HostnameEsperado $hostnameEsperado) {
                 Write-Ok "Sucesso na copia com compressao"
                 $totalSucesso++
             } else {
@@ -380,7 +409,7 @@ foreach ($servidor in $servidores) {
         "indeterminado" {
             $totalIndeterminado++
             Write-Warn "TTL fora das faixas esperadas - tentando conexao SSH..."
-            if (Copiar-ComCompressao -Servidor $servidor -DestinoLocal $Destino -NomeServidor $nomeServidor) {
+            if (Copiar-ComCompressao -Servidor $servidor -DestinoLocal $Destino -NomeServidor $nomeServidor -HostnameEsperado $hostnameEsperado) {
                 Write-Ok "Sucesso na copia com compressao (possivelmente Linux)"
                 $totalSucesso++
             } else {

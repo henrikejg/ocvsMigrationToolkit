@@ -118,6 +118,38 @@ if ($naoEncontrados.Count -gt 0) {
     Write-Warning "Arquivos não encontrados em raw para: $($naoEncontrados -join ', ')"
 }
 
+# ── Normalizar hostname na coluna 2 de cada arquivo de coleta ─────────────────
+# Garante que todas as linhas tenham o hostname correto (da planilha),
+# independente do que o servidor reportou (ex: -, hostname.localdomain, typo)
+Write-Host "Normalizando hostnames nos arquivos de coleta..."
+
+$normalizados = 0
+foreach ($servidor in $servidores) {
+    $arquivo = Join-Path $DirColetas "netstat_${servidor}.txt"
+    if (-not (Test-Path $arquivo)) { continue }
+
+    $linhas = [System.IO.File]::ReadAllLines($arquivo, [System.Text.Encoding]::UTF8)
+    $alterado = $false
+    $linhasNormalizadas = for ($i = 0; $i -lt $linhas.Count; $i++) {
+        $cols = $linhas[$i] -split ";"
+        if ($cols.Count -ge 2 -and $cols[1] -ne $servidor) {
+            $cols[1] = $servidor
+            $alterado = $true
+            $cols -join ";"
+        } else {
+            $linhas[$i]
+        }
+    }
+    if ($alterado) {
+        [System.IO.File]::WriteAllLines($arquivo, $linhasNormalizadas, [System.Text.Encoding]::UTF8)
+        $normalizados++
+    }
+}
+
+if ($normalizados -gt 0) {
+    Write-Host "  $normalizados arquivo(s) com hostname normalizado" -ForegroundColor Yellow
+}
+
 # ── Executar AWK: dependencias_ocvs.awk ──────────────────────────────────────
 Write-Host "Adicionando informacoes extras..."
 

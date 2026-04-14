@@ -121,8 +121,8 @@ function listarOndas() {
   } catch { return []; }
 }
 
-// ── Ler e enriquecer arquivo processado ──────────────────────────────────────
-function lerProcessado(numeroOnda) {
+// ── Ler e enriquecer arquivo processado (async para nao bloquear event loop) ──
+async function lerProcessadoAsync(numeroOnda) {
   const key = `processado_${numeroOnda}`;
   if (cache.has(key)) return cache.get(key);
 
@@ -133,45 +133,63 @@ function lerProcessado(numeroOnda) {
   const aplicacoes = excelPath ? lerAbaAplicacoes(excelPath) : {};
   const mapaOndas  = excelPath ? lerMapaOndas(excelPath)     : {};
 
-  const linhas = [];
-  const conteudo = fs.readFileSync(arquivo, "utf-8");
+  // Pre-computar mapa sem dominio para lookup rapido
+  const mapaOndaSemDominio = {};
+  for (const k of Object.keys(mapaOndas)) {
+    const semDom = k.split(".")[0];
+    if (!mapaOndaSemDominio[semDom]) mapaOndaSemDominio[semDom] = mapaOndas[k];
+  }
 
-  for (const linha of conteudo.split(/\r?\n/)) {
-    if (!linha.trim()) continue;
+  const buf      = fs.readFileSync(arquivo);
+  const rawLinhas = buf.toString("utf-8").split("\n");
+  const linhas   = [];
+  const LOTE = 20000;
+
+  for (let i = 0; i < rawLinhas.length; i++) {
+    // Ceder o event loop a cada lote para nao bloquear
+    if (i > 0 && i % LOTE === 0) {
+      await new Promise(r => setImmediate(r));
+    }
+
+    const linha = rawLinhas[i].trimEnd();
+    if (!linha) continue;
     const c = linha.split(";");
     while (c.length < 17) c.push("");
 
-    const processo   = (c[7]  || "").trim();
-    const ipRemoto   = (c[11] || "").trim();
-    const hostname   = (c[1]  || "").trim();
+    const processo    = (c[7]  || "").trim();
+    const ipRemoto    = (c[11] || "").trim();
+    const hostname    = (c[1]  || "").trim();
     const contadorRaw = (c[16] || "1").replace(/\D/g, "") || "1";
 
-    // Enriquecer aplicação — busca exata pelo executável (igual ao PROCV do Excel)
-    const procKey   = processo.trim().toLowerCase();
+    const procKey   = processo.toLowerCase();
     const aplicacao = aplicacoes[procKey] || "Falta Identificar";
 
-    // Enriquecer ondas
-    const ondaOrigem  = mapaOndas[hostname.toUpperCase()] || "";
+    const hostnameUpper      = hostname.toUpperCase();
+    const hostnameSemDominio = hostnameUpper.split(".")[0];
+    const ondaOrigem = mapaOndas[hostnameUpper]
+      || mapaOndas[hostnameSemDominio]
+      || mapaOndaSemDominio[hostnameSemDominio]
+      || "";
     const ondaDestino = mapaOndas[ipRemoto] || mapaOndas[ipRemoto.toUpperCase()] || "";
 
     linhas.push({
-      data:        c[0],
+      data:         c[0],
       hostname,
-      proto:       c[2],
-      local:       c[3],
-      remoto:      c[4],
-      estado:      c[5],
-      pid:         c[6],
+      proto:        c[2],
+      local:        c[3],
+      remoto:       c[4],
+      estado:       c[5],
+      pid:          c[6],
       processo,
       aplicacao,
-      ip_local:    c[9],
-      porta_local: c[10],
-      ip_remoto:   ipRemoto,
+      ip_local:     c[9],
+      porta_local:  c[10],
+      ip_remoto:    ipRemoto,
       porta_remota: c[12],
-      direcao:     c[13],
-      ocvs:        c[14],
-      portas_fmt:  c[15],
-      contador:    parseInt(contadorRaw, 10),
+      direcao:      c[13],
+      ocvs:         c[14],
+      portas_fmt:   c[15],
+      contador:     parseInt(contadorRaw, 10) || 1,
       onda_origem:  ondaOrigem,
       onda_destino: ondaDestino,
     });
@@ -179,6 +197,30 @@ function lerProcessado(numeroOnda) {
 
   cache.set(key, linhas);
   return linhas;
+}
+
+// Wrapper sincrono para compatibilidade (usa cache se disponivel)
+function lerProcessado(numeroOnda) {
+  const key = `processado_${numeroOnda}`;
+  return cache.get(key) || null;
+}
+
+// Map de promises em andamento para evitar processamento duplo
+const _carregando = new Map();
+
+async function lerProcessadoComCache(numeroOnda) {
+  const key = `processado_${numeroOnda}`;
+  if (cache.has(key)) return cache.get(key);
+
+  // Se ja esta sendo carregado, aguardar a mesma promise
+  if (_carregando.has(key)) return _carregando.get(key);
+
+  const promise = lerProcessadoAsync(numeroOnda).then(dados => {
+    _carregando.delete(key);
+    return dados;
+  });
+  _carregando.set(key, promise);
+  return promise;
 }
 
 // ── Lógica de análise ─────────────────────────────────────────────────────────
@@ -446,7 +488,7 @@ function respFile(res, filePath) {
   }
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const [urlPath, queryStr] = req.url.split("?");
   const params = new URLSearchParams(queryStr || "");
 
@@ -528,7 +570,9 @@ const server = http.createServer((req, res) => {
   const mOnda = urlPath.match(/^\/api\/onda\/(\w+)\/(.+)$/);
   if (mOnda) {
     const [, numero, endpoint] = mOnda;
-    let dados = lerProcessado(numero);
+
+    // Carregar dados (async — usa cache se ja disponivel, senao processa uma unica vez)
+    let dados = await lerProcessadoComCache(numero);
     if (!dados) return respJson(res, { erro: "Onda não encontrada" }, 404);
 
     // Filtro coluna O (ocvs): "OCVS", "FORA" ou omitido (todos)
@@ -603,6 +647,9 @@ const server = http.createServer((req, res) => {
     }
 
     if (endpoint === "resumo") {
+      // servidores processados: sempre sem filtro de ocvs para refletir o total real
+      const dadosBrutos = lerProcessado(numero) || dados;
+      const servidoresProcessados = [...new Set(dadosBrutos.map(r => r.hostname.toUpperCase()))].length;
       const excelPath = encontrarExcel();
       let servidoresPrevistos = 0;
       if (excelPath) {
@@ -629,7 +676,6 @@ const server = http.createServer((req, res) => {
           }
         } catch {}
       }
-      const servidoresProcessados = [...new Set(dados.map(r => r.hostname))].length;
       return respJson(res, {
         total_linhas:          dados.length,
         total_conexoes:        dados.reduce((s, r) => s + r.contador, 0),
