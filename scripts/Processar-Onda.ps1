@@ -131,24 +131,30 @@ if ($netstatFiles.Count -eq 0) {
 function Invoke-Awk {
     param([string]$ScriptAwk, [string[]]$Arquivos, [string]$Saida)
 
-    # Tentar awk nativo primeiro
+    # 1. awk.exe na mesma pasta dos scripts (empacotado com a solucao)
+    $AwkLocal = Join-Path $PSScriptRoot "awk.exe"
+    if (Test-Path $AwkLocal) {
+        & $AwkLocal -f $ScriptAwk @Arquivos | Set-Content -Path $Saida -Encoding UTF8
+        return $LASTEXITCODE -eq 0
+    }
+
+    # 2. awk no PATH do sistema
     if (Get-Command awk -ErrorAction SilentlyContinue) {
         $args = @($ScriptAwk) + $Arquivos
         awk -f @args > $Saida
         return $LASTEXITCODE -eq 0
     }
 
-    # Fallback: WSL
+    # 3. Fallback: WSL
     if (Get-Command wsl -ErrorAction SilentlyContinue) {
-        # Converter caminhos para WSL
-        $awkWsl    = wsl wslpath ($ScriptAwk -replace '\\', '/')
-        $saidaWsl  = wsl wslpath ($Saida     -replace '\\', '/')
-        $filesWsl  = $Arquivos | ForEach-Object { wsl wslpath ($_ -replace '\\', '/') }
+        $awkWsl   = wsl wslpath ($ScriptAwk -replace '\\', '/')
+        $saidaWsl = wsl wslpath ($Saida     -replace '\\', '/')
+        $filesWsl = $Arquivos | ForEach-Object { wsl wslpath ($_ -replace '\\', '/') }
         wsl awk -f $awkWsl @filesWsl > $Saida
         return $LASTEXITCODE -eq 0
     }
 
-    Write-Error "awk não encontrado. Instale Git for Windows (inclui awk) ou habilite WSL."
+    Write-Error "awk nao encontrado. Coloque awk.exe na pasta scripts/ ou instale Git for Windows."
     return $false
 }
 

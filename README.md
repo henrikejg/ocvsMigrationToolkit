@@ -16,19 +16,17 @@ Install-Module ImportExcel -Scope CurrentUser
 ```
 
 ### 3. OpenSSH (coleta de servidores Linux)
-Já incluso no Windows 10/11. Para verificar ou instalar:
+Já incluso no Windows 10/11. Para verificar:
 ```powershell
 Get-WindowsCapability -Online -Name OpenSSH.Client*
+```
+
+Se o resultado mostrar `State: NotPresent`, instale com:
+```powershell
 Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
 ```
 
-### 4. AWK (processamento dos dados coletados)
-Necessário para o `Processar-Onda.ps1`. Opções:
-- **Git for Windows** (recomendado — instala `awk.exe` automaticamente no PATH):  
-  https://git-scm.com/download/win
-- **WSL** (fallback automático se `awk.exe` não estiver no PATH)
-
-### 5. Node.js LTS (dashboard web)
+### 4. Node.js LTS (dashboard web)
 Baixe o installer `.msi` em https://nodejs.org  
 Necessário apenas para rodar o dashboard de análise.
 
