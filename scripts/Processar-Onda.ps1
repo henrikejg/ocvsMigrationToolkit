@@ -99,6 +99,12 @@ foreach ($dir in @($DirColetas, $DirConsolidado, $DirProcessados)) {
 # ── Copiar coletas da pasta raw ───────────────────────────────────────────────
 Write-Host "Organizando coletas de netstat dos servidores da ONDA $NumeroOnda..."
 
+# Limpar COLETAS antes de copiar — garante que só ficam os servidores atuais da onda
+if (Test-Path $DirColetas) {
+    Get-ChildItem -Path $DirColetas -Filter "netstat_*.txt" | Remove-Item -Force
+    Write-Host "  Pasta COLETAS limpa para reprocessamento"
+}
+
 $copiados = 0
 $naoEncontrados = @()
 
