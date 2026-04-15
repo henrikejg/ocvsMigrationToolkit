@@ -1,6 +1,6 @@
 # OCVS Migration Toolkit — v0.2.0
 
-Ferramentas para coleta, processamento e análise de dependências de rede durante migração de VMs OCVS para IaaS.
+Ferramentas para coleta, processamento e análise de dependências de rede (camada 4) durante migração de VMs OCVS para IaaS.
 
 ---
 
@@ -28,7 +28,7 @@ Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
 
 ### 4. Node.js LTS (dashboard web)
 Baixe o installer `.msi` em https://nodejs.org  
-Necessário apenas para rodar o dashboard de análise.
+Necessário apenas para rodar o dashboard de análise. As dependências (sql.js, xlsx) são instaladas automaticamente na primeira execução.
 
 ---
 
@@ -36,15 +36,20 @@ Necessário apenas para rodar o dashboard de análise.
 
 ```
 <raiz>/
-  scripts/          <- scripts PowerShell e AWK
-  dashboard/        <- servidor Node + interface web
+  scripts/            <- scripts PowerShell e AWK
+  dashboard/          <- servidor Node + interface web
+    client/           <- HTML/JS do frontend (single-page)
+    db.js             <- camada SQLite (sql.js/WebAssembly)
+    server.js         <- backend HTTP nativo
   dados/
-    raw/            <- arquivos netstat coletados (netstat_*.txt)
+    raw/              <- arquivos netstat coletados (netstat_*.txt)
     ONDAXX/
-      COLETAS/      <- netstat_*.txt organizados por onda
-      CONSOLIDADO/  <- arquivo consolidado intermediário
-    PROCESSADOS/    <- ONDAXX_processado.txt (saída final para análise)
-  SERVIDORES.xlsx   <- planilha com servidores e ondas (manter aqui)
+      COLETAS/        <- netstat_*.txt organizados por onda
+      CONSOLIDADO/    <- arquivo consolidado intermediário
+    PROCESSADOS/      <- ONDAXX_processado.txt (saída final)
+    ocvs.db           <- banco SQLite (gerado automaticamente)
+    logs/             <- logs de execução (JSON)
+  SERVIDORES_OCVS.xlsx  <- planilha com servidores e ondas (manter aqui)
   README.md
 ```
 
@@ -54,33 +59,30 @@ A planilha Excel deve ficar na pasta raiz e precisa conter:
 
 ---
 
-## Início rápido — interface web
-
-A forma mais simples de usar o toolkit é pelo dashboard web, que centraliza todas as operações:
+## Início rápido
 
 ```powershell
 cd dashboard
 .\Iniciar-Dashboard.ps1
 ```
 
-O browser abre automaticamente em `http://localhost:5000`. A partir daí tudo pode ser feito pela interface:
-
-- **Coletar** — botão no header, solicita número da onda e credenciais SSH, executa a coleta com output em tempo real
-- **Processar** — botão no header, solicita número da onda, consolida os dados coletados
-- **Analisar** — selecione a onda no dropdown e todas as visões são carregadas automaticamente
-
-Os scripts de linha de comando continuam disponíveis para quem preferir automação ou integração com outros processos.
+O browser abre automaticamente em `http://localhost:5000`. Na primeira execução as dependências são instaladas automaticamente.
 
 ---
 
 ## Fluxo de uso
 
 ```
-1. Coletar    ->  2. Processar    ->  3. Analisar (dashboard)
+1. Coletar  →  2. Processar  →  3. Analisar (dashboard)
 ```
 
-### 1. Coletar netstat dos servidores Linux
+Todas as etapas podem ser executadas pela interface web ou por linha de comando.
 
+### 1. Coletar netstat dos servidores
+
+**Pela interface:** Menu lateral → Coletar Onda (ou botão na tela inicial para ondas pendentes)
+
+**Por linha de comando:**
 ```powershell
 cd scripts
 .\Coletar-Linux.ps1 -NumeroOnda 2
@@ -106,6 +108,9 @@ Host *
 
 ### 2. Processar e consolidar uma onda
 
+**Pela interface:** Menu lateral → Processar Onda
+
+**Por linha de comando:**
 ```powershell
 cd scripts
 .\Processar-Onda.ps1 -NumeroOnda 2
@@ -114,44 +119,77 @@ cd scripts
 - Copia os arquivos da onda de `dados\raw\` para `dados\ONDA2\COLETAS\`
 - Executa os scripts AWK para enriquecer e aglutinar as conexões
 - Gera `dados\PROCESSADOS\ONDA2_processado.txt`
+- Ingere os dados automaticamente no banco SQLite
 
 A aglutinação reduz o volume de dados agrupando conexões semelhantes em uma única linha com contador — essencial para análise de grandes volumes.
 
-### 3. Analisar dependências (dashboard web)
+### 3. Analisar dependências (dashboard)
 
-```powershell
-cd dashboard
-.\Iniciar-Dashboard.ps1
-```
-
-Na primeira execução instala as dependências automaticamente. O browser abre em `http://localhost:5000`.
+Selecione a onda no dropdown do header. Todas as visões são carregadas automaticamente a partir do banco SQLite.
 
 ---
 
-## Dashboard — visões disponíveis
+## Dashboard — interface web
+
+### Tela inicial
+
+Ao abrir o dashboard, a tela inicial mostra uma visão geral de todas as ondas:
+- Cards com totais: ondas no Excel, processadas, ingeridas no banco, última execução
+- Tabela de ondas com status e botões contextuais (Coletar / Processar / Abrir)
+
+### Menu lateral
+
+Acessível pelo ícone de menu (☰) no canto superior esquerdo. Empurra o conteúdo e pode ficar aberto durante a sessão.
+
+| Seção | Ação | Descrição |
+|-------|------|-----------|
+| Coleta e Processamento | Coletar Onda | Coleta netstat via SSH com output em tempo real |
+| | Processar Onda | Consolida dados e ingere no banco automaticamente |
+| Banco de Dados | Atualizar Ondas | Lê o Excel e sincroniza a composição de todas as ondas no banco |
+| | Reingerir Banco | Reconstrói o banco a partir dos arquivos .txt processados |
+| Sistema | Recarregar Cache | Limpa o cache em memória e força releitura |
+| | Logs de Execução | Histórico de coletas e processamentos com log completo |
+
+### Visões de análise (por onda)
 
 | Painel | Descrição |
 |--------|-----------|
-| **Servidores de Origem** | Hierarquia Servidor → Aplicação → IP Remoto → Portas, filtrada por ESTABLISHED e SYN_SENT. Checkbox para mostrar apenas conexões sem onda agendada. |
-| **Status de Migração** | Distribuição das conexões por categoria: mesma onda, onda anterior, onda futura, fora do OCVS, sem onda agendada. Clique em qualquer barra para ver o detalhe (drilldown). |
-| **Top Comunicações** | 50 maiores fluxos por volume de conexões. |
-| **Dependências Externas** | Servidores desta onda comunicando com IPs fora dela, com busca por hostname/IP/aplicação. |
-| **Grafo de Dependências** | Visualização interativa com pan, zoom e filtros por tipo de conexão. |
+| **Servidores de Origem** | Hierarquia Servidor → Aplicação → IP Remoto → Portas. Filtros para ignorar onda atual/passadas e AD/Zabbix. Indicador de maturidade quando não há dependências críticas. |
+| **Visão Geral** | Gráfico donut com distribuição: rede privada externa, IP público, ondas anteriores, mesma onda, problemas. Clique em qualquer fatia para drilldown detalhado. |
+| **Top Comunicações** | 15 maiores fluxos por volume de conexões. |
 
-O dashboard enriquece os dados automaticamente:
-- Nome da aplicação via lookup na aba `Aplicacoes` da planilha
-- Onda de origem e destino via lookup na aba `vInfo`
+### Header
 
-Os botões **Coletar** e **Processar** no header do dashboard permitem executar os scripts diretamente pela interface, com output em tempo real.
+- Seletor de onda e tipo de conexão (OCVS / Fora do OCVS / Todos)
+- Badge de fonte dos dados: verde (SQLite) ou amarelo (.txt)
+- Clique no título para voltar à tela inicial
+
+---
+
+## Banco de dados SQLite
+
+A partir da v0.2.0, os dados processados são armazenados em um banco SQLite (`dados/ocvs.db`) via sql.js (WebAssembly — sem dependências nativas).
+
+**Vantagens:**
+- Alterações na composição das ondas no Excel são refletidas sem reprocessar os dados
+- Consultas mais rápidas para ondas já ingeridas
+- `onda_destino` resolvido via JOIN em tempo de consulta (sempre atualizado)
+
+**Fluxo de atualização:**
+- Alterou a onda de um servidor no Excel → clique em **Atualizar Ondas** no menu
+- Coletou novos dados de netstat → **Processar Onda** (ingestão automática)
+- Banco corrompido ou desatualizado → **Reingerir Banco**
+
+O dashboard faz fallback automático para os arquivos `.txt` quando uma onda não está no banco.
 
 ---
 
 ## Scripts disponíveis
 
-| Script | Uso direto |
+| Script | Descrição |
 |--------|-----------|
 | `Coletar-Linux.ps1` | Coleta netstat de servidores Linux via SSH |
-| `Processar-Onda.ps1` | Organiza e consolida coletas de uma onda |
+| `Processar-Onda.ps1` | Organiza, consolida e ingere dados de uma onda |
 | `Analisar-Dependencias.ps1` | Análise de dependências via linha de comando |
 | `Extrair-IPs.ps1` | Extrai IPs de uma onda da planilha Excel |
 | `Extrair-Hostnames.ps1` | Extrai hostnames de uma onda da planilha Excel |
