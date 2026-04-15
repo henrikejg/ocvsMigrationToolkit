@@ -363,7 +363,7 @@ function calcServidoresOrigem(dados, apenasSemdOnda = false, esconderDispensavei
     const nA = nH.aplicacoes.get(a);
     nA[est] = (nA[est] || 0) + cnt;
 
-    if (!nA.ips.has(ip)) nA.ips.set(ip, { ip, ESTABLISHED: 0, SYN_SENT: 0, portas: new Map() });
+    if (!nA.ips.has(ip)) nA.ips.set(ip, { ip, onda_destino: r.onda_destino || "", ESTABLISHED: 0, SYN_SENT: 0, portas: new Map() });
     const nI = nA.ips.get(ip);
     nI[est] = (nI[est] || 0) + cnt;
 
@@ -390,6 +390,7 @@ function calcServidoresOrigem(dados, apenasSemdOnda = false, esconderDispensavei
             .sort((a, b) => (b.ESTABLISHED + b.SYN_SENT) - (a.ESTABLISHED + a.SYN_SENT))
             .map(i => ({
               ip:          i.ip,
+              onda_destino: i.onda_destino,
               ESTABLISHED: i.ESTABLISHED,
               SYN_SENT:    i.SYN_SENT,
               portas: [...i.portas.values()]
@@ -1113,7 +1114,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.2.3`);
+  console.log(` OCVS Migration Dashboard v0.3.0`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);

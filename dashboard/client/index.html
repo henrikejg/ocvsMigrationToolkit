@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OCVS Migration Dashboard v0.2.3</title>
+<title>OCVS Migration Dashboard v0.3.0</title>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -214,7 +214,7 @@
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">
     <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
   </svg>
-  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.2.3</small></h1>
+  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.3.0</small></h1>
   <span id="excel-path"></span>
   <div class="header-right">
     <div class="onda-select">
@@ -673,7 +673,7 @@ function buildTreeLinhas(servidores) {
 
         return `<div class="tree-node" id="ip-${hi}-${ai}-${ii}">
           <div class="tree-row tree-ip" onclick="toggleNode('ip-${hi}-${ai}-${ii}')">
-            <span><span class="tree-toggle">▶</span>${i.ip}</span>
+            <span><span class="tree-toggle">▶</span>${i.ip} ${i.onda_destino && /Onda\s+\d+/i.test(i.onda_destino) ? `<span style="color:#64748b;font-size:0.75rem">(${i.onda_destino})</span>` : '<span style="color:#ef4444;font-size:0.75rem">(Sem onda planejada)</span>'}</span>
             <span class="tree-num est">${i.ESTABLISHED ? fmt(i.ESTABLISHED) : ""}</span>
             <span class="tree-num syn">${i.SYN_SENT    ? fmt(i.SYN_SENT)    : ""}</span>
             <span class="tree-num tot">${fmt(i.ESTABLISHED + i.SYN_SENT)}</span>
@@ -705,6 +705,8 @@ function buildTreeLinhas(servidores) {
   }).join("");
 }
 
+let _ultimosServidores = [];
+
 async function recarregarServidores() {
   const ocvs             = document.getElementById("sel-ocvs").value;
   const semOnda          = document.getElementById("chk-sem-onda").checked;
@@ -719,6 +721,7 @@ async function recarregarServidores() {
   document.getElementById("tree-body").innerHTML = `<div class="loading">Atualizando...</div>`;
 
   const servidores = await fetch(`${API}/api/onda/${ondaAtual}/servidores-origem${qs}`).then(r => r.json());
+  _ultimosServidores = servidores;
 
   document.getElementById("tree-body").innerHTML = buildTreeLinhas(servidores);
 
@@ -752,7 +755,10 @@ function panelServidoresHTML(servidores) {
   const totalSyn = servidores.reduce((s, r) => s + r.SYN_SENT, 0);
 
   return `<div class="panel" id="painel-servidores">
-    <h2>Servidores de Origem <span class="badge">ESTABLISHED + SYN_SENT apenas</span></h2>
+    <h2>Servidores de Origem <span class="badge">ESTABLISHED + SYN_SENT apenas</span>
+      <button class="btn-refresh" style="margin-left:auto;font-size:0.78rem;padding:4px 12px;background:#334155"
+              onclick="exportarServidoresHTML()">&#11123; Exportar HTML</button>
+    </h2>
     <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
       <input class="search" id="srv-search" placeholder="Filtrar por hostname..."
              oninput="filtrarServidores(this.value)" style="margin:0;flex:1">
@@ -804,6 +810,77 @@ function filtrarServidores(q) {
     node.style.display = (!ql || label.includes(ql)) ? "" : "none";
   });
 }
+
+function exportarServidoresHTML() {
+  const dados = _ultimosServidores;
+  if (!dados || dados.length === 0) { alert("Nenhum dado para exportar."); return; }
+
+  const ondaLabel = `Onda ${ondaAtual}`;
+  const agora = new Date().toLocaleString("pt-BR");
+
+  // Gerar árvore HTML com toggle via JS inline
+  let treeHTML = '';
+  dados.forEach((h, hi) => {
+    const apps = h.aplicacoes.map((a, ai) => {
+      const ips = a.ips.map((i, ii) => {
+        const portas = i.portas.map(p =>
+          `<div class="row porta"><span>${esc(p.fmt)}</span><span class="n est">${p.ESTABLISHED||''}</span><span class="n syn">${p.SYN_SENT||''}</span><span class="n tot">${p.ESTABLISHED+p.SYN_SENT}</span></div>`
+        ).join('');
+        const ondaTag = i.onda_destino && /Onda\\s+\\d+/i.test(i.onda_destino)
+          ? '<span class="onda-tag ok">(' + esc(i.onda_destino) + ')</span>'
+          : '<span class="onda-tag sem">Sem onda planejada</span>';
+        return `<div class="node"><div class="row ip" onclick="tog(this)"><span><b class="tg">▶</b>${esc(i.ip)} ${ondaTag}</span><span class="n est">${i.ESTABLISHED||''}</span><span class="n syn">${i.SYN_SENT||''}</span><span class="n tot">${i.ESTABLISHED+i.SYN_SENT}</span></div><div class="ch" style="display:none">${portas}</div></div>`;
+      }).join('');
+      return `<div class="node"><div class="row app" onclick="tog(this)"><span><b class="tg">▶</b>${esc(a.nome)}</span><span class="n est">${a.ESTABLISHED||''}</span><span class="n syn">${a.SYN_SENT||''}</span><span class="n tot">${a.ESTABLISHED+a.SYN_SENT}</span></div><div class="ch" style="display:none">${ips}</div></div>`;
+    }).join('');
+    treeHTML += `<div class="node"><div class="row srv" onclick="tog(this)"><span><b class="tg">▶</b>${esc(h.hostname)}${h.ip_local ? ' <small>('+esc(h.ip_local)+')</small>' : ''}</span><span class="n est">${h.ESTABLISHED||''}</span><span class="n syn">${h.SYN_SENT||''}</span><span class="n tot">${h.ESTABLISHED+h.SYN_SENT}</span></div><div class="ch" style="display:none">${apps}</div></div>`;
+  });
+
+  const totalEst = dados.reduce((s,r) => s+r.ESTABLISHED, 0);
+  const totalSyn = dados.reduce((s,r) => s+r.SYN_SENT, 0);
+
+  const togScript = '<' + 'script>function tog(el){var ch=el.parentElement.querySelector(".ch");if(!ch)return;var open=ch.style.display!=="none";ch.style.display=open?"none":"block";var tg=el.querySelector(".tg");if(tg)tg.textContent=open?"▶":"▼";}</' + 'script>';
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8"><title>Servidores de Origem — ${ondaLabel}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;padding:24px}
+h1{font-size:1.2rem;color:#f1f5f9;margin-bottom:4px}
+.sub{font-size:0.78rem;color:#64748b;margin-bottom:20px}
+.hdr{display:grid;grid-template-columns:1fr 110px 90px 90px;padding:4px 8px;font-size:0.72rem;color:#475569;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px}
+.row{display:grid;grid-template-columns:1fr 110px 90px 90px;padding:5px 8px;border-radius:4px;cursor:pointer;user-select:none;font-size:0.82rem}
+.row:hover{background:#263348}
+.srv{font-weight:600;color:#f1f5f9;background:#263348;border-left:3px solid #3b82f6;margin-bottom:2px;border-radius:4px}
+.app{padding-left:20px;color:#94a3b8;font-style:italic}
+.ip{padding-left:40px;color:#cbd5e1}
+.porta{padding-left:60px;color:#64748b;cursor:default}
+.n{text-align:right}.est{color:#86efac}.syn{color:#fcd34d}.tot{color:#f1f5f9;font-weight:600}
+.tg{display:inline-block;width:14px;text-align:center;color:#64748b;font-size:0.7rem;margin-right:4px;font-weight:400}
+.total{display:grid;grid-template-columns:1fr 110px 90px 90px;padding:5px 8px;font-weight:600;color:#f1f5f9;background:#263348;border-left:3px solid #475569;margin-top:8px;border-radius:4px;font-size:0.82rem}
+small{color:#64748b;font-weight:400}
+.onda-tag{font-size:0.72rem;margin-left:6px}
+.onda-tag.ok{color:#64748b}
+.onda-tag.sem{color:#ef4444}
+</style></head><body>
+<h1>Servidores de Origem — ${esc(ondaLabel)}</h1>
+<div class="sub">Exportado em ${agora} — ESTABLISHED + SYN_SENT</div>
+<div class="hdr"><span>Servidor / Aplicação / IP Remoto</span><span class="n">ESTABLISHED</span><span class="n">SYN_SENT</span><span class="n">Total</span></div>
+${treeHTML}
+<div class="total"><span>Total Geral</span><span class="n est">${totalEst}</span><span class="n syn">${totalSyn}</span><span class="n tot">${totalEst+totalSyn}</span></div>
+${togScript}
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `servidores_origem_onda${ondaAtual}_${new Date().toISOString().slice(0,10)}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 
 // ── Gráfico de Pizza (Donut) ──────────────────────────────────────────────────
