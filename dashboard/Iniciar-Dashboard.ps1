@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Inicia o OCVS Migration Dashboard v0.1
+    Inicia o OCVS Migration Dashboard v0.2.0
 #>
 
 $scriptDir = $PSScriptRoot
@@ -18,10 +18,11 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 $nodeVersion = node --version
 Write-Host "Node.js $nodeVersion detectado" -ForegroundColor Green
 
-# Instalar dependencias se necessario
+# Instalar/atualizar dependencias
 $nodeModules = Join-Path $scriptDir "node_modules"
-if (-not (Test-Path $nodeModules)) {
-    Write-Host "Instalando dependencias (primeira vez)..." -ForegroundColor Cyan
+$sqlJsPath   = Join-Path $nodeModules "sql.js"
+if ((-not (Test-Path $nodeModules)) -or (-not (Test-Path $sqlJsPath))) {
+    Write-Host "Instalando dependencias..." -ForegroundColor Cyan
     Push-Location $scriptDir
     npm install
     Pop-Location
