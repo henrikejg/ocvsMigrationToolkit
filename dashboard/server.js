@@ -7,6 +7,7 @@ const http    = require("http");
 const fs      = require("fs");
 const path    = require("path");
 const { execSync, spawn } = require("child_process");
+const db      = require("./db");
 
 const SCRIPTS_DIR = path.join(path.resolve(__dirname, ".."), "scripts");
 const LOGS_DIR    = path.join(path.resolve(__dirname, ".."), "dados", "logs");
@@ -215,12 +216,31 @@ async function lerProcessadoComCache(numeroOnda) {
   // Se ja esta sendo carregado, aguardar a mesma promise
   if (_carregando.has(key)) return _carregando.get(key);
 
-  const promise = lerProcessadoAsync(numeroOnda).then(dados => {
+  const promise = _lerProcessadoFonte(numeroOnda).then(dados => {
     _carregando.delete(key);
     return dados;
   });
   _carregando.set(key, promise);
   return promise;
+}
+
+// Decide a fonte dos dados: banco (se onda ingerida) ou arquivo .txt (fallback)
+async function _lerProcessadoFonte(numeroOnda) {
+  try {
+    if (db.ondaIngerida(numeroOnda)) {
+      console.log(`[cache] Onda ${numeroOnda} — lendo do banco SQLite`);
+      const excelPath    = encontrarExcel();
+      const mapaAplic    = excelPath ? lerAbaAplicacoes(excelPath) : {};
+      const linhas       = db.carregarOndaDoBanco(numeroOnda, mapaAplic);
+      const key          = `processado_${numeroOnda}`;
+      cache.set(key, linhas);
+      return linhas;
+    }
+  } catch (e) {
+    console.warn(`[cache] Falha ao ler banco para onda ${numeroOnda}, usando .txt: ${e.message}`);
+  }
+  console.log(`[cache] Onda ${numeroOnda} — lendo do arquivo .txt`);
+  return lerProcessadoAsync(numeroOnda);
 }
 
 // ── Lógica de análise ─────────────────────────────────────────────────────────
@@ -504,6 +524,7 @@ const server = http.createServer(async (req, res) => {
 
   if (urlPath === "/api/cache/clear") {
     cache.clear();
+    _carregando.clear();
     return respJson(res, { ok: true });
   }
 
@@ -541,6 +562,83 @@ const server = http.createServer(async (req, res) => {
       return respJson(res, { erro: e.message }, 500);
     }
   }
+  // ── Visão geral — resumo de todas as ondas ──────────────────────────────────
+  if (urlPath === "/api/visao-geral") {
+    try {
+      const excelPath = encontrarExcel();
+      const ondasProcessadas = listarOndas();
+
+      // Ler ondas do Excel
+      const ondasExcel = {};
+      if (excelPath) {
+        const wb  = getXLSX().readFile(excelPath, { cellText: true, cellDates: false });
+        const ws  = wb.Sheets["vInfo"];
+        if (ws) {
+          const rows = getXLSX().utils.sheet_to_json(ws, { header: 1 });
+          const hdr  = rows[0] || [];
+          let colVM = -1, colIP = -1, colOnda = -1;
+          hdr.forEach((v, i) => {
+            const s = String(v || "").trim();
+            if (s === "VM")                 colVM   = i;
+            else if (/IP|Address/i.test(s)) colIP   = i;
+            else if (s === "ONDA")          colOnda = i;
+          });
+          for (const row of rows.slice(1)) {
+            const vm   = String(row[colVM]   || "").trim();
+            const onda = String(row[colOnda] || "").trim();
+            if (!vm || vm === "None" || vm === "A definir") continue;
+            const m = onda.match(/Onda\s+(\w+)/i);
+            if (!m) continue;
+            const num = m[1];
+            if (!ondasExcel[num]) ondasExcel[num] = { previstos: 0 };
+            ondasExcel[num].previstos++;
+          }
+        }
+      }
+
+      // Status do banco
+      let dbStatus = { inicializado: false, ondas: [] };
+      try { dbStatus = db.statusDB(); } catch {}
+
+      // Último log
+      let ultimoLog = null;
+      try {
+        if (fs.existsSync(LOGS_DIR)) {
+          const logs = fs.readdirSync(LOGS_DIR).filter(f => f.endsWith(".json")).sort().reverse();
+          if (logs.length > 0) {
+            const meta = JSON.parse(fs.readFileSync(path.join(LOGS_DIR, logs[0]), "utf8"));
+            ultimoLog = { script: meta.script, onda: meta.onda, inicio: meta.inicio, exitCode: meta.exitCode };
+          }
+        }
+      } catch {}
+
+      // Montar lista unificada de ondas
+      const todasOndas = new Set([...Object.keys(ondasExcel), ...ondasProcessadas]);
+      const lista = [...todasOndas].sort().map(num => {
+        const excel      = ondasExcel[num] || null;
+        const processada = ondasProcessadas.includes(num);
+        const dbOnda     = (dbStatus.ondas || []).find(o => String(o.numero) === num);
+        return {
+          numero:     num,
+          previstos:  excel ? excel.previstos : 0,
+          processada,
+          ingerida:   dbOnda ? dbOnda.ingerida : false,
+          conexoesBD: dbOnda ? dbOnda.conexoes : 0,
+        };
+      });
+
+      return respJson(res, {
+        totalOndasExcel:      Object.keys(ondasExcel).length,
+        totalOndasProcessadas: ondasProcessadas.length,
+        totalOndasIngeridas:  lista.filter(o => o.ingerida).length,
+        ultimoLog,
+        ondas: lista,
+      });
+    } catch (e) {
+      return respJson(res, { erro: e.message }, 500);
+    }
+  }
+
   if (urlPath === "/api/logs") {
     try {
       if (!fs.existsSync(LOGS_DIR)) return respJson(res, []);
@@ -690,6 +788,199 @@ const server = http.createServer(async (req, res) => {
     return respJson(res, { erro: "Endpoint desconhecido" }, 404);
   }
 
+  // ── Status do banco ──────────────────────────────────────────────────────────
+  if (urlPath === "/api/db/status") {
+    return respJson(res, db.statusDB());
+  }
+
+  // ── Ingerir onda no banco (POST) ──────────────────────────────────────────────
+  // Chamado automaticamente após processar uma onda
+  if (urlPath === "/api/db/ingerir" && req.method === "POST") {
+    let body = "";
+    req.on("data", d => body += d);
+    req.on("end", async () => {
+      try {
+        const { onda } = JSON.parse(body);
+        if (!onda) return respJson(res, { erro: "onda obrigatória" }, 400);
+
+        // Garantir que o banco está inicializado
+        await db.initDB();
+
+        // Carregar dados processados (usa cache se disponível)
+        const linhas = await lerProcessadoComCache(onda);
+        if (!linhas) return respJson(res, { erro: "Onda não encontrada" }, 404);
+
+        // Sincronizar aplicações
+        const excelPath = encontrarExcel();
+        if (excelPath) {
+          const aplicacoes = lerAbaAplicacoes(excelPath);
+          db.sincronizarAplicacoes(aplicacoes);
+        }
+
+        const resultado = db.ingerirOnda(onda, linhas);
+        console.log(`[db] Onda ${onda} ingerida: ${resultado.servidores} servidores, ${resultado.linhas} linhas`);
+        return respJson(res, resultado);
+      } catch (e) {
+        console.error("[db] Erro na ingestão:", e.message);
+        return respJson(res, { erro: e.message }, 500);
+      }
+    });
+    return;
+  }
+
+  // ── Reingerir todas as ondas (POST) ──────────────────────────────────────────  // Usado para reprocessar o banco após mudanças no schema de ingestão
+  if (urlPath === "/api/db/reingerir-tudo" && req.method === "POST") {
+    (async () => {
+      try {
+        await db.initDB();
+        const ondas = listarOndas();
+        if (ondas.length === 0) return respJson(res, { ok: true, ondas: 0, msg: "Nenhuma onda processada encontrada" });
+
+        const excelPath = encontrarExcel();
+        const resultados = [];
+
+        for (const onda of ondas) {
+          try {
+            // Forçar leitura do .txt (ignorar cache do banco)
+            const linhas = await lerProcessadoAsync(onda);
+            if (!linhas) { resultados.push({ onda, ok: false, erro: "Arquivo não encontrado" }); continue; }
+            if (excelPath) db.sincronizarAplicacoes(lerAbaAplicacoes(excelPath));
+            const r = db.ingerirOnda(onda, linhas);
+            // Limpar cache para próxima leitura vir do banco atualizado
+            cache.delete(`processado_${onda}`);
+            _carregando.delete(`processado_${onda}`);
+            resultados.push({ onda, ok: true, servidores: r.servidores, linhas: r.linhas });
+            console.log(`[reingerir] Onda ${onda}: ${r.servidores} servidores, ${r.linhas} linhas`);
+          } catch (e) {
+            resultados.push({ onda, ok: false, erro: e.message });
+          }
+        }
+        return respJson(res, { ok: true, resultados });
+      } catch (e) {
+        return respJson(res, { erro: e.message }, 500);
+      }
+    })();
+    return;
+  }
+
+  // ── Sincronizar membros de uma onda (POST) ────────────────────────────────────  // Atualiza onda_membros sem reprocessar — usado quando composição da onda muda
+  if (urlPath === "/api/db/sincronizar-onda" && req.method === "POST") {
+    let body = "";
+    req.on("data", d => body += d);
+    req.on("end", async () => {
+      try {
+        const { onda } = JSON.parse(body);
+        if (!onda) return respJson(res, { erro: "onda obrigatória" }, 400);
+
+        await db.initDB();
+
+        const excelPath = encontrarExcel();
+        if (!excelPath) return respJson(res, { erro: "Excel não encontrado" }, 404);
+
+        // Ler membros da onda do Excel (hostname + ip + ambiente)
+        const wb   = getXLSX().readFile(excelPath, { cellText: true, cellDates: false });
+        const ws   = wb.Sheets["vInfo"];
+        if (!ws) return respJson(res, { erro: "Aba vInfo não encontrada" }, 404);
+
+        const rows = getXLSX().utils.sheet_to_json(ws, { header: 1 });
+        const hdr  = rows[0] || [];
+        let colVM = -1, colIP = -1, colOnda = -1, colAmbiente = -1;
+        hdr.forEach((v, i) => {
+          const s = String(v || "").trim();
+          if (s === "VM")                 colVM       = i;
+          else if (/IP|Address/i.test(s)) colIP       = i;
+          else if (s === "ONDA")          colOnda     = i;
+          else if (s === "PROD/NÃO-PROD" || s === "PROD/NAO-PROD") colAmbiente = i;
+        });
+
+        const membros = rows.slice(1)
+          .filter(r => {
+            const ondaVal = String(r[colOnda] || "").trim();
+            const vm      = String(r[colVM]   || "").trim();
+            return new RegExp(`Onda\\s+${onda}\\b`, "i").test(ondaVal) &&
+                   vm && vm !== "None" && vm !== "A definir";
+          })
+          .map(r => ({
+            hostname: String(r[colVM]       || "").trim(),
+            ip:       String(r[colIP]       || "").trim(),
+            ambiente: String(r[colAmbiente] || "").trim(),
+          }));
+
+        const resultado = db.sincronizarOnda(onda, membros);
+        // Limpar cache para forçar releitura do banco com nova composição
+        cache.delete(`processado_${onda}`);
+        _carregando.delete(`processado_${onda}`);
+        console.log(`[db] Onda ${onda} sincronizada: ${resultado.membros} membros`);
+        return respJson(res, resultado);
+      } catch (e) {
+        console.error("[db] Erro na sincronização:", e.message);
+        return respJson(res, { erro: e.message }, 500);
+      }
+    });
+    return;
+  }
+
+  // ── Sincronizar TODAS as ondas do Excel de uma vez (POST) ───────────────────
+  if (urlPath === "/api/db/sincronizar-tudo" && req.method === "POST") {
+    (async () => {
+      try {
+        await db.initDB();
+        const excelPath = encontrarExcel();
+        if (!excelPath) return respJson(res, { erro: "Excel não encontrado" }, 404);
+
+        const wb   = getXLSX().readFile(excelPath, { cellText: true, cellDates: false });
+        const ws   = wb.Sheets["vInfo"];
+        if (!ws) return respJson(res, { erro: "Aba vInfo não encontrada" }, 404);
+
+        const rows = getXLSX().utils.sheet_to_json(ws, { header: 1 });
+        const hdr  = rows[0] || [];
+        let colVM = -1, colIP = -1, colOnda = -1, colAmbiente = -1;
+        hdr.forEach((v, i) => {
+          const s = String(v || "").trim();
+          if (s === "VM")                                              colVM       = i;
+          else if (/IP|Address/i.test(s))                             colIP       = i;
+          else if (s === "ONDA")                                      colOnda     = i;
+          else if (s === "PROD/NÃO-PROD" || s === "PROD/NAO-PROD")   colAmbiente = i;
+        });
+
+        // Agrupar servidores por onda
+        const porOnda = {};
+        for (const row of rows.slice(1)) {
+          const vm   = String(row[colVM]   || "").trim();
+          const ip   = String(row[colIP]   || "").trim();
+          const onda = String(row[colOnda] || "").trim();
+          const amb  = String(row[colAmbiente] || "").trim();
+          if (!vm || vm === "None" || vm === "A definir") continue;
+          // Extrair número da onda (ex: "Onda 2" → "2")
+          const mOnda = onda.match(/Onda\s+(\w+)/i);
+          if (!mOnda) continue;
+          const num = mOnda[1];
+          if (!porOnda[num]) porOnda[num] = [];
+          porOnda[num].push({ hostname: vm, ip, ambiente: amb });
+        }
+
+        const resultados = [];
+        for (const [num, membros] of Object.entries(porOnda)) {
+          try {
+            const r = db.sincronizarOnda(num, membros);
+            // Limpar cache para forçar releitura com nova composição
+            cache.delete(`processado_${num}`);
+            _carregando.delete(`processado_${num}`);
+            resultados.push({ onda: num, ok: true, membros: r.membros });
+            console.log(`[sincronizar-tudo] Onda ${num}: ${r.membros} membros`);
+          } catch (e) {
+            resultados.push({ onda: num, ok: false, erro: e.message });
+          }
+        }
+
+        return respJson(res, { ok: true, resultados });
+      } catch (e) {
+        return respJson(res, { erro: e.message }, 500);
+      }
+    })();
+    return;
+  }
+
   // Execucao de scripts PowerShell com streaming via SSE
   if (urlPath === "/api/executar" && req.method === "POST") {
     let body = "";
@@ -770,6 +1061,31 @@ const server = http.createServer(async (req, res) => {
         const msg = "Processo encerrado (exit " + code + ")";
         appendLog(msg, code === 0 ? "sucesso" : "erro");
         sendLine(msg, code === 0 ? "sucesso" : "erro");
+
+        // Se foi um processamento bem-sucedido, ingerir no banco automaticamente
+        if (code === 0 && script === "processar") {
+          sendLine("Ingerindo dados no banco...", "info");
+          db.initDB().then(() => {
+            return lerProcessadoAsync(onda); // sempre lê do .txt na ingestão
+          }).then(linhas => {
+            if (linhas) {
+              const excelPath = encontrarExcel();
+              if (excelPath) db.sincronizarAplicacoes(lerAbaAplicacoes(excelPath));
+              const r = db.ingerirOnda(onda, linhas);
+              sendLine(`Banco atualizado: ${r.servidores} servidores, ${r.linhas} linhas`, "sucesso");
+              appendLog(`Banco atualizado: ${r.servidores} servidores, ${r.linhas} linhas`, "sucesso");
+            }
+          }).catch(e => {
+            sendLine(`Aviso: falha na ingestão do banco — ${e.message}`, "warn");
+          }).finally(() => {
+            try { res.write("data: {\"tipo\":\"fim\"}\n\n"); res.end(); } catch {}
+            // Limpar cache para próxima leitura vir do banco
+            cache.delete("processado_" + onda);
+            _carregando.delete("processado_" + onda);
+          });
+          return; // não fechar o SSE ainda — aguardar ingestão
+        }
+
         try { res.write("data: {\"tipo\":\"fim\"}\n\n"); res.end(); } catch {}
         cache.delete("processado_" + onda);
       });
@@ -788,10 +1104,18 @@ const server = http.createServer(async (req, res) => {
 });
 
 const PORT = 5000;
-server.listen(PORT, "127.0.0.1", () => {
+server.listen(PORT, "127.0.0.1", async () => {
+  // Inicializar banco SQLite
+  try {
+    await db.initDB();
+    const status = db.statusDB();
+    console.log(` DB:    ${status.tamanhoMB}MB — ${status.servidores} servidores, ${status.conexoes} conexões`);
+  } catch (e) {
+    console.error(" DB:    Erro ao inicializar:", e.message);
+  }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard`);
+  console.log(` OCVS Migration Dashboard v0.2.0`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);

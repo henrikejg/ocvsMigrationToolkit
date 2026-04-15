@@ -159,7 +159,7 @@ if ($normalizados -gt 0) {
 # ── Executar AWK: dependencias_ocvs.awk ──────────────────────────────────────
 Write-Host "Adicionando informacoes extras..."
 
-$netstatFiles = Get-ChildItem -Path $DirColetas -Filter "netstat_*.txt" | Select-Object -ExpandProperty FullName
+$netstatFiles = @(Get-ChildItem -Path $DirColetas -Filter "netstat_*.txt" | Select-Object -ExpandProperty FullName)
 
 if ($netstatFiles.Count -eq 0) {
     Write-Error "Nenhum arquivo netstat encontrado em $DirColetas"

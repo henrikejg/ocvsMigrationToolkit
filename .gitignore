@@ -4,6 +4,11 @@
 *.xls
 *.zip
 
+# Banco de dados local
+*.db
+*.db-shm
+*.db-wal
+
 # Dependências Node
 dashboard/node_modules/
 

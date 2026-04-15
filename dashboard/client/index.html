@@ -3,23 +3,89 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OCVS Migration Dashboard v0.1</title>
+<title>OCVS Migration Dashboard v0.2.0</title>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
-  header { background: #1e293b; border-bottom: 1px solid #334155; padding: 16px 24px;
-           display: flex; align-items: center; gap: 16px; }
-  header h1 { font-size: 1.2rem; font-weight: 600; color: #f1f5f9; }
-  header span { font-size: 0.8rem; color: #64748b; }
-  .onda-select { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-  .onda-select label { font-size: 0.85rem; color: #94a3b8; }
+
+  /* ── Layout base ── */
+  #app-shell { display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* ── Header ── */
+  header {
+    background: #1e293b; border-bottom: 1px solid #334155;
+    padding: 0 16px; height: 52px;
+    display: flex; align-items: center; gap: 12px;
+    position: sticky; top: 0; z-index: 50;
+    transition: padding-left 0.25s;
+  }
+  .btn-hamburger {
+    background: none; border: none; cursor: pointer; color: #94a3b8;
+    padding: 6px; border-radius: 6px; display: flex; flex-direction: column;
+    gap: 4px; flex-shrink: 0;
+  }
+  .btn-hamburger:hover { background: #334155; color: #f1f5f9; }
+  .btn-hamburger span {
+    display: block; width: 18px; height: 2px; background: currentColor;
+    border-radius: 2px; transition: all 0.2s;
+  }
+  header h1 { font-size: 1.1rem; font-weight: 600; color: #f1f5f9; white-space: nowrap; }
+  header h1 small { font-size: 0.65rem; color: #475569; font-weight: 400; margin-left: 4px; }
+  #excel-path { font-size: 0.75rem; color: #475569; white-space: nowrap; overflow: hidden;
+                text-overflow: ellipsis; max-width: 200px; }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .onda-select { display: flex; align-items: center; gap: 8px; }
+  .onda-select label { font-size: 0.85rem; color: #94a3b8; white-space: nowrap; }
   select { background: #334155; color: #f1f5f9; border: 1px solid #475569;
            padding: 6px 12px; border-radius: 6px; font-size: 0.9rem; cursor: pointer; }
   select:focus { outline: none; border-color: #3b82f6; }
+
+  /* ── Body row (sidebar + main) ── */
+  #body-row { display: flex; flex: 1; }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 0; overflow: hidden;
+    background: #1e293b; border-right: 1px solid #334155;
+    display: flex; flex-direction: column;
+    transition: width 0.25s ease;
+    flex-shrink: 0;
+  }
+  #sidebar.open { width: 240px; }
+  #sidebar-inner { width: 240px; padding: 16px 0; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+
+  .sb-section {
+    padding: 8px 16px 4px;
+    font-size: 0.68rem; font-weight: 600; color: #475569;
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .sb-btn {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 16px; font-size: 0.85rem; color: #94a3b8;
+    background: none; border: none; cursor: pointer; width: 100%; text-align: left;
+    border-radius: 0; transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+  .sb-btn:hover { background: #263348; color: #f1f5f9; }
+  .sb-btn .sb-icon { width: 18px; height: 18px; flex-shrink: 0; }
+  .sb-divider { height: 1px; background: #334155; margin: 8px 16px; }
+
+  /* Seletor de tipo de conexão na sidebar */
+  .sb-select-wrap { padding: 6px 16px; display: flex; flex-direction: column; gap: 4px; }
+  .sb-select-wrap label { font-size: 0.78rem; color: #64748b; }
+  .sb-select-wrap select { width: 100%; font-size: 0.82rem; padding: 5px 8px; }
+
+  /* ── Main content ── */
+  #main-wrap { flex: 1; min-width: 0; }
+  main { padding: 24px; display: grid; gap: 20px; }
+
+  /* ── Botão refresh genérico ── */
   .btn-refresh { background: #1d4ed8; color: white; border: none; padding: 6px 14px;
                  border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
   .btn-refresh:hover { background: #2563eb; }
-  main { padding: 24px; display: grid; gap: 20px; }
+
+  /* ── Cards ── */
   .cards-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
   .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 20px; }
   .card h2 { font-size: 0.8rem; color: #64748b; text-transform: uppercase;
@@ -75,7 +141,7 @@
   .contador-badge { font-weight: 700; color: #f1f5f9; }
   .alert { background: #450a0a; border: 1px solid #7f1d1d; border-radius: 8px;
            padding: 12px 16px; font-size: 0.85rem; color: #fca5a5; }
-  /* Modal drilldown */
+  /* Modal */
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7);
                    z-index: 200; display: flex; align-items: center; justify-content: center; }
   .modal { background: #1e293b; border: 1px solid #334155; border-radius: 12px;
@@ -92,7 +158,7 @@
   .modal-body { overflow-y: auto; flex: 1; }
   .modal-body table { width: 100%; }
   .modal-body th { position: sticky; top: 0; background: #1e293b; z-index: 1; }
-  /* Terminal de execução */
+  /* Terminal */
   .terminal { background: #020617; border-radius: 8px; padding: 16px; font-family: 'Consolas','Courier New',monospace;
               font-size: 0.78rem; height: 380px; overflow-y: auto; color: #94a3b8; }
   .terminal .log     { color: #94a3b8; }
@@ -134,52 +200,94 @@
   .tree-toggle { display: inline-block; width: 14px; text-align: center;
                  color: #64748b; font-size: 0.7rem; margin-right: 4px; }
   .collapsed > .tree-children { display: none; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
+<div id="app-shell">
 
+<!-- ── Header ── -->
 <header>
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+  <button class="btn-hamburger" onclick="toggleSidebar()" title="Menu" aria-label="Abrir menu">
+    <span></span><span></span><span></span>
+  </button>
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">
     <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
   </svg>
-  <h1>OCVS Migration Dashboard <span style="font-size:0.7rem;color:#475569;font-weight:400">v0.1</span></h1>
+  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.2.0</small></h1>
   <span id="excel-path"></span>
-  <div class="onda-select">
-    <label>Onda:</label>
-    <select id="sel-onda"><option value="">-- selecione --</option></select>
-    <label style="margin-left:12px">Tipo de Conexão:</label>
-    <select id="sel-ocvs">
-      <option value="OCVS" selected>Apenas OCVS</option>
-      <option value="FORA">Apenas Fora do OCVS</option>
-      <option value="">Todos</option>
-    </select>
-    <button class="btn-refresh" onclick="limparCache()">&#8635; Recarregar</button>
-    <button class="btn-refresh" style="background:#16a34a" onclick="abrirExecucao('coletar')">&#9660; Coletar</button>
-    <button class="btn-refresh" style="background:#7c3aed" onclick="abrirExecucao('processar')">&#9654; Processar</button>
-    <button class="btn-refresh" style="background:#0f172a;border:1px solid #334155" onclick="abrirLogs()">&#128196; Logs</button>
+  <div class="header-right">
+    <div class="onda-select">
+      <label>Onda:</label>
+      <select id="sel-onda"><option value="">-- selecione --</option></select>
+      <label style="margin-left:10px">Conexão:</label>
+      <select id="sel-ocvs">
+        <option value="OCVS" selected>Apenas OCVS</option>
+        <option value="FORA">Apenas Fora do OCVS</option>
+        <option value="">Todos</option>
+      </select>
+    </div>
+    <span id="db-badge" style="display:none;font-size:0.72rem;padding:3px 10px;border-radius:99px;font-weight:500"></span>
   </div>
 </header>
 
-<div class="tooltip" id="tooltip"></div>
+<!-- ── Body row ── -->
+<div id="body-row">
 
-<main id="main">
-  <div class="no-onda">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-      <path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8"/>
-    </svg>
-    <p>Selecione uma onda para visualizar os dados</p>
-    <div style="display:flex;gap:12px;margin-top:8px">
-      <button class="btn-refresh" style="background:#16a34a" onclick="abrirExecucao('coletar')">&#9660; Coletar Onda</button>
-      <button class="btn-refresh" style="background:#7c3aed" onclick="abrirExecucao('processar')">&#9654; Processar Onda</button>
+  <!-- ── Sidebar ── -->
+  <nav id="sidebar">
+    <div id="sidebar-inner">
+
+      <div class="sb-section">Coleta e Processamento</div>
+      <button class="sb-btn" onclick="abrirExecucao('coletar')">
+        <i data-lucide="download" class="sb-icon"></i> Coletar Onda
+      </button>
+      <button class="sb-btn" onclick="abrirExecucao('processar')">
+        <i data-lucide="cog" class="sb-icon"></i> Processar Onda
+      </button>
+
+      <div class="sb-divider"></div>
+      <div class="sb-section">Banco de Dados</div>
+      <button class="sb-btn" onclick="atualizarTodasOndas()">
+        <i data-lucide="refresh-cw" class="sb-icon"></i> Atualizar Ondas
+      </button>
+      <button class="sb-btn" onclick="reingerirTudo()">
+        <i data-lucide="database" class="sb-icon"></i> Reingerir Banco
+      </button>
+
+      <div class="sb-divider"></div>
+      <div class="sb-section">Sistema</div>
+      <button class="sb-btn" onclick="limparCache()">
+        <i data-lucide="rotate-ccw" class="sb-icon"></i> Recarregar Cache
+      </button>
+      <button class="sb-btn" onclick="abrirLogs()">
+        <i data-lucide="file-text" class="sb-icon"></i> Logs de Execução
+      </button>
+
     </div>
+  </nav>
+
+  <!-- ── Main ── -->
+  <div id="main-wrap">
+    <div class="tooltip" id="tooltip"></div>
+    <main id="main">
+      <div class="loading">Carregando visão geral...</div>
+    </main>
   </div>
-</main>
+
+</div><!-- #body-row -->
+</div><!-- #app-shell -->
 
 <div id="modal-root"></div>
 
 <script>
 const API = "";
 let ondaAtual = "";
+
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+function toggleSidebar() {
+  document.getElementById("sidebar").classList.toggle("open");
+}
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 async function init() {
@@ -194,12 +302,101 @@ async function init() {
     opt.value = o; opt.textContent = `Onda ${o}`;
     sel.appendChild(opt);
   });
-  sel.addEventListener("change", e => { ondaAtual = e.target.value; renderDashboard(); });
+  sel.addEventListener("change", e => { ondaAtual = e.target.value; if (ondaAtual) renderDashboard(); else renderHome(); });
   document.getElementById("sel-ocvs").addEventListener("change", () => { if (ondaAtual) renderDashboard(); });
 
   if (excel.path) {
     document.getElementById("excel-path").textContent = excel.path.split(/[\\/]/).pop();
   }
+
+  // Renderizar ícones Lucide
+  if (typeof lucide !== "undefined") lucide.createIcons();
+
+  // Mostrar tela inicial
+  renderHome();
+}
+
+// ── Tela inicial — visão geral das ondas ──────────────────────────────────────
+async function renderHome() {
+  const main = document.getElementById("main");
+  main.innerHTML = `<div class="loading">Carregando visão geral...</div>`;
+
+  try {
+    const dados = await fetch(`${API}/api/visao-geral`).then(r => r.json());
+
+    const ultimoLogHTML = dados.ultimoLog
+      ? `${dados.ultimoLog.script} — Onda ${dados.ultimoLog.onda} — ${new Date(dados.ultimoLog.inicio).toLocaleString("pt-BR")} — ${dados.ultimoLog.exitCode === 0 ? '<span style="color:#4ade80">OK</span>' : '<span style="color:#f87171">Erro</span>'}`
+      : '<span style="color:#475569">Nenhuma execução registrada</span>';
+
+    const rowsHTML = dados.ondas.map(o => {
+      const statusTag = o.ingerida
+        ? '<span class="tag tag-ocvs">No banco</span>'
+        : o.processada
+          ? '<span class="tag" style="background:#422006;color:#fcd34d">Processada</span>'
+          : '<span class="tag" style="background:#334155;color:#64748b">Pendente</span>';
+
+      let acoesHTML = '';
+      if (o.ingerida) {
+        acoesHTML = `<button class="btn-refresh" style="font-size:0.78rem;padding:4px 12px"
+                      onclick="event.stopPropagation();selecionarOnda('${o.numero}')">Abrir</button>`;
+      } else if (o.processada) {
+        acoesHTML = `<button class="btn-refresh" style="font-size:0.78rem;padding:4px 10px;background:#7c3aed"
+                      onclick="event.stopPropagation();abrirExecucao('processar','${o.numero}')">Processar</button>
+                     <button class="btn-refresh" style="font-size:0.78rem;padding:4px 12px"
+                      onclick="event.stopPropagation();selecionarOnda('${o.numero}')">Abrir</button>`;
+      } else {
+        acoesHTML = `<button class="btn-refresh" style="font-size:0.78rem;padding:4px 10px;background:#16a34a"
+                      onclick="event.stopPropagation();abrirExecucao('coletar','${o.numero}')">Coletar</button>
+                     <button class="btn-refresh" style="font-size:0.78rem;padding:4px 10px;background:#7c3aed"
+                      onclick="event.stopPropagation();abrirExecucao('processar','${o.numero}')">Processar</button>`;
+      }
+
+      return `<tr${o.ingerida || o.processada ? ' style="cursor:pointer" onclick="selecionarOnda(\'' + o.numero + '\')"' : ''}>
+        <td style="font-weight:600;color:#f1f5f9">Onda ${o.numero}</td>
+        <td>${o.previstos}</td>
+        <td>${statusTag}</td>
+        <td>${o.ingerida ? o.conexoesBD.toLocaleString("pt-BR") : '—'}</td>
+        <td style="display:flex;gap:6px;justify-content:flex-end">${acoesHTML}</td>
+      </tr>`;
+    }).join("");
+
+    main.innerHTML = `
+      <div class="cards-row">
+        ${cardHTML("Ondas no Excel", dados.totalOndasExcel, "definidas na planilha")}
+        ${cardHTML("Ondas processadas", dados.totalOndasProcessadas, "com arquivo .txt gerado")}
+        ${cardHTML("Ondas no banco", dados.totalOndasIngeridas, "ingeridas no SQLite")}
+        <div class="card">
+          <h2>Última execução</h2>
+          <div style="font-size:0.85rem;color:#cbd5e1;margin-top:8px;line-height:1.5">${ultimoLogHTML}</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Ondas <span class="badge">${dados.ondas.length} ondas encontradas</span></h2>
+        <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Onda</th>
+            <th>Servidores previstos</th>
+            <th>Status</th>
+            <th>Conexões no banco</th>
+            <th></th>
+          </tr></thead>
+          <tbody>${rowsHTML || '<tr><td colspan="5" class="empty">Nenhuma onda encontrada</td></tr>'}</tbody>
+        </table>
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    main.innerHTML = `<div class="alert">Erro ao carregar visão geral: ${e.message}</div>`;
+  }
+}
+
+function selecionarOnda(numero) {
+  const sel = document.getElementById("sel-onda");
+  sel.value = numero;
+  ondaAtual = numero;
+  renderDashboard();
 }
 
 async function limparCache() {
@@ -229,6 +426,9 @@ async function renderDashboard() {
     fetchOp(`${API}/api/onda/${ondaAtual}/resumo-geral`),
   ]);
 
+  // Atualizar badge de fonte dos dados
+  atualizarBadgeFonte();
+
   main.innerHTML = `
     <div class="cards-row">
       ${cardHTML("Linhas processadas", fmt(resumo.total_linhas), "após aglutinação")}
@@ -245,11 +445,11 @@ async function renderDashboard() {
       </div>
       ${panelTopHTML(topComm)}
     </div>
-
-    ${panelDepExtColapsavel()}
   `;
 
   renderPizza(pizza);
+  // Popular mensagem de maturidade no estado inicial
+  recarregarServidores();
 }
 
 // ── Cards ─────────────────────────────────────────────────────────────────────
@@ -528,6 +728,23 @@ async function recarregarServidores() {
   totalRow.querySelector(".est").textContent = fmt(totalEst);
   totalRow.querySelector(".syn").textContent = fmt(totalSyn);
   totalRow.querySelector(".tot").textContent = fmt(totalEst + totalSyn);
+
+  // Mensagem de maturidade — aparece quando ambos os filtros estão ativos e total = 0
+  const msgDiv = document.getElementById("msg-maturidade");
+  if (msgDiv) {
+    if ((totalEst + totalSyn) === 0 && semOnda && esconderDisp) {
+      msgDiv.innerHTML = `<div style="margin-top:16px;padding:16px;background:#14532d;border:1px solid #166534;
+                  border-radius:8px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:1.5rem">✅</span>
+        <div>
+          <div style="color:#86efac;font-weight:600;font-size:0.9rem">Esta onda está madura para execução.</div>
+          <div style="color:#4ade80;font-size:0.82rem;margin-top:3px">Não existem comunicações que podem quebrar com a migração destas VMs.</div>
+        </div>
+      </div>`;
+    } else {
+      msgDiv.innerHTML = "";
+    }
+  }
 }
 
 function panelServidoresHTML(servidores) {
@@ -564,6 +781,7 @@ function panelServidoresHTML(servidores) {
         <span class="tree-num syn">${fmt(totalSyn)}</span>
         <span class="tree-num tot">${fmt(totalEst + totalSyn)}</span>
       </div>
+      <div id="msg-maturidade"></div>
     </div>
   </div>`;
 }
@@ -776,13 +994,16 @@ function filtrarDrill(q) {
 function fecharModal() {
   window._execRunning = false;
   document.getElementById("modal-root").innerHTML = "";
+  // Recarregar home para refletir mudanças de status
+  if (!ondaAtual) renderHome();
 }
 
 // ── Execução de scripts ───────────────────────────────────────────────────────
-function abrirExecucao(script) {
+function abrirExecucao(script, ondaPreset) {
   window._execRunning = false;
   const titulo = script === "coletar" ? "Coletar Onda" : "Processar Onda";
   const cor    = script === "coletar" ? "#16a34a" : "#7c3aed";
+  const ondaValor = ondaPreset || ondaAtual || '';
 
   document.getElementById("modal-root").innerHTML = `
     <div class="modal-overlay">
@@ -793,7 +1014,7 @@ function abrirExecucao(script) {
         </div>
         <div style="padding:16px 20px;border-bottom:1px solid #334155">
           <div class="form-row">
-            <input id="exec-onda" type="text" placeholder="Número da onda (ex: 2)" value="${ondaAtual || ''}">
+            <input id="exec-onda" type="text" placeholder="Número da onda (ex: 2)" value="${ondaValor}">
             ${script === "coletar" ? `
             <input id="exec-usuario" type="text" placeholder="Usuário SSH" value="migracao">
             <div style="position:relative;flex:1;min-width:140px">
@@ -964,6 +1185,8 @@ async function executarScript(script) {
               opt.value = o; opt.textContent = `Onda ${o}`;
               sel.appendChild(opt);
             });
+            // Se estiver na home, recarregar para atualizar status das ondas
+            if (!ondaAtual) renderHome();
           } else {
             addLinha(obj.linha, obj.tipo);
           }
@@ -980,11 +1203,152 @@ async function executarScript(script) {
 
 
 
+async function atualizarBadgeFonte() {
+  const badge = document.getElementById("db-badge");
+  if (!badge || !ondaAtual) return;
+  try {
+    const status = await fetch(`${API}/api/db/status`).then(r => r.json());
+    const ondaInfo = (status.ondas || []).find(o => String(o.numero) === String(ondaAtual));
+    if (ondaInfo && ondaInfo.ingerida) {
+      badge.style.display = "";
+      badge.style.background = "#14532d";
+      badge.style.color = "#86efac";
+      badge.style.border = "1px solid #166534";
+      badge.title = `${ondaInfo.conexoes.toLocaleString("pt-BR")} conexões no banco`;
+      badge.textContent = "⬡ SQLite";
+    } else {
+      badge.style.display = "";
+      badge.style.background = "#422006";
+      badge.style.color = "#fcd34d";
+      badge.style.border = "1px solid #78350f";
+      badge.title = "Onda não ingerida — lendo do arquivo .txt";
+      badge.textContent = "⬡ .txt";
+    }
+  } catch {
+    badge.style.display = "none";
+  }
+}
+
+// ── Modal de confirmação estilizado ───────────────────────────────────────────
+function confirmarAcao(titulo, descricao, labelOk) {
+  return new Promise(resolve => {
+    const modal = document.getElementById("modal-root");
+    modal.innerHTML = `
+      <div class="modal-overlay" onclick="if(event.target===this){document.getElementById('modal-root').innerHTML='';window._confirmarResolve(false)}">
+        <div class="modal" style="max-width:480px">
+          <div class="modal-header">
+            <div><h3>${titulo}</h3></div>
+            <button class="modal-close" onclick="document.getElementById('modal-root').innerHTML='';window._confirmarResolve(false)">&#x2715;</button>
+          </div>
+          <div style="padding:20px;font-size:0.88rem;color:#cbd5e1;line-height:1.6">
+            ${descricao}
+          </div>
+          <div style="padding:12px 20px;border-top:1px solid #334155;display:flex;justify-content:flex-end;gap:10px">
+            <button class="btn-refresh" style="background:#334155;color:#94a3b8"
+                    onclick="document.getElementById('modal-root').innerHTML='';window._confirmarResolve(false)">Cancelar</button>
+            <button class="btn-refresh" style="background:#1d4ed8"
+                    onclick="document.getElementById('modal-root').innerHTML='';window._confirmarResolve(true)">${labelOk}</button>
+          </div>
+        </div>
+      </div>`;
+    window._confirmarResolve = resolve;
+  });
+}
+
+async function atualizarTodasOndas() {
+  const ok = await confirmarAcao(
+    "Atualizar Ondas",
+    `<p>Lê a planilha Excel e atualiza a composição de <strong>todas as ondas</strong> no banco de dados.</p>
+     <p style="margin-top:10px;color:#94a3b8;font-size:0.82rem">Use quando você alterou a onda de um ou mais servidores no Excel e quer que o dashboard reflita a mudança sem precisar reprocessar os dados.</p>
+     <p style="margin-top:10px;color:#94a3b8;font-size:0.82rem">Os dados de conexão (netstat) não são alterados — apenas o mapeamento de quem pertence a qual onda.</p>`,
+    "Atualizar"
+  );
+  if (!ok) return;
+
+  const btn = event.target.closest("button");
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="sb-icon" style="animation:spin 1s linear infinite"></i> Atualizando...';
+  if (typeof lucide !== "undefined") lucide.createIcons();
+  try {
+    const r = await fetch(`${API}/api/db/sincronizar-tudo`, { method: "POST" }).then(r => r.json());
+    if (r.ok) {
+      const qtdOndas = r.resultados.filter(x => x.ok).length;
+      const total    = r.resultados.reduce((s, x) => s + (x.membros || 0), 0);
+      const err      = r.resultados.filter(x => !x.ok).length;
+      alert(`Ondas atualizadas: ${qtdOndas} onda(s), ${total} servidores no total${err ? `\n${err} com erro` : ""}.`);
+      if (ondaAtual) renderDashboard();
+    } else {
+      alert(`Erro: ${r.erro}`);
+    }
+  } catch (e) {
+    alert(`Erro: ${e.message}`);
+  } finally {
+    btn.disabled = false; btn.innerHTML = orig;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+}
+
+async function reingerirTudo() {
+  const ok = await confirmarAcao(
+    "Reingerir Banco",
+    `<p>Reconstrói o banco de dados SQLite a partir dos arquivos <strong>.txt processados</strong> de todas as ondas.</p>
+     <p style="margin-top:10px;color:#94a3b8;font-size:0.82rem">Use quando o banco estiver desatualizado, corrompido, ou após uma atualização do sistema que alterou a estrutura dos dados.</p>
+     <p style="margin-top:10px;color:#94a3b8;font-size:0.82rem">Pode demorar alguns segundos dependendo do volume de dados.</p>`,
+    "Reingerir"
+  );
+  if (!ok) return;
+
+  const btn = event.target.closest("button");
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="sb-icon" style="animation:spin 1s linear infinite"></i> Reingerindo...';
+  if (typeof lucide !== "undefined") lucide.createIcons();
+  try {
+    const r = await fetch(`${API}/api/db/reingerir-tudo`, { method: "POST" }).then(r => r.json());
+    if (r.ok) {
+      const qtdOk  = r.resultados.filter(x => x.ok).length;
+      const qtdErr = r.resultados.filter(x => !x.ok).length;
+      alert(`Reingestão concluída: ${qtdOk} onda(s) OK${qtdErr ? `, ${qtdErr} com erro` : ""}.`);
+      if (ondaAtual) renderDashboard();
+    } else {
+      alert(`Erro: ${r.erro}`);
+    }
+  } catch (e) {
+    alert(`Erro: ${e.message}`);
+  } finally {
+    btn.disabled = false; btn.innerHTML = orig;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+}
+
 init();
 
 // ── Logs de execução ──────────────────────────────────────────────────────────
+async function sincronizarOnda() {
+  if (!ondaAtual) { alert("Selecione uma onda primeiro."); return; }
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = "Sincronizando...";
+  try {
+    const r = await fetch(`${API}/api/db/sincronizar-onda`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ onda: ondaAtual }),
+    }).then(r => r.json());
+    if (r.ok) {
+      // Recarregar dashboard com dados atualizados do banco
+      await renderDashboard();
+      atualizarBadgeFonte();
+    } else {
+      alert(`Erro: ${r.erro}`);
+    }
+  } catch (e) {
+    alert(`Erro: ${e.message}`);
+  } finally {
+    btn.disabled = false; btn.textContent = "⇄ Sincronizar Onda";
+  }
+}
+
 async function abrirLogs() {
-  const logs = await fetch(`${API}/api/logs`).then(r => r.json());
+  const logs = await fetch(`${API}/api/logs`).then(r => r.json()).catch(() => []);
 
   const linhas = logs.length ? logs.map(l => {
     const dt   = new Date(l.inicio).toLocaleString("pt-BR");
