@@ -1,9 +1,44 @@
 <#
 .SYNOPSIS
-    Inicia o OCVS Migration Dashboard v0.2.2
+    Inicia o OCVS Migration Dashboard v0.2.3
 #>
 
 $scriptDir = $PSScriptRoot
+
+# Garantir que a execution policy permite rodar scripts nesta sessao
+$currentPolicy = Get-ExecutionPolicy -Scope Process
+if ($currentPolicy -eq "Restricted" -or $currentPolicy -eq "Undefined") {
+    try {
+        Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned -Force
+        Write-Host "Execution policy ajustada para RemoteSigned (sessao atual)" -ForegroundColor Yellow
+    } catch {
+        Write-Host ""
+        Write-Host "Erro: politica de execucao do PowerShell impede a execucao de scripts." -ForegroundColor Red
+        Write-Host "Execute o comando abaixo como Administrador e tente novamente:" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned" -ForegroundColor Cyan
+        Write-Host ""
+        exit 1
+    }
+}
+
+# Garantir SSH config para compatibilidade com servidores legado
+$sshDir    = Join-Path $env:USERPROFILE ".ssh"
+$sshConfig = Join-Path $sshDir "config"
+if (-not (Test-Path $sshConfig)) {
+    if (-not (Test-Path $sshDir)) {
+        New-Item -ItemType Directory -Path $sshDir -Force | Out-Null
+    }
+    $sshContent = @"
+Host *
+    KexAlgorithms +diffie-hellman-group1-sha1
+    HostKeyAlgorithms +ssh-rsa
+    Ciphers +aes128-cbc
+    StrictHostKeyChecking no
+"@
+    Set-Content -Path $sshConfig -Value $sshContent -Encoding UTF8
+    Write-Host "SSH config criado em $sshConfig (compatibilidade com servidores legado)" -ForegroundColor Yellow
+}
 
 # Verificar Node.js
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {

@@ -1,4 +1,4 @@
-# OCVS Migration Toolkit — v0.2.2
+# OCVS Migration Toolkit — v0.2.3
 
 Ferramentas para coleta, processamento e análise de dependências de rede (camada 4) durante migração de VMs OCVS para IaaS.
 
@@ -29,6 +29,12 @@ Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
 ### 4. Node.js LTS (dashboard web)
 Baixe o installer `.msi` em https://nodejs.org  
 Necessário apenas para rodar o dashboard de análise. As dependências (sql.js, xlsx) são instaladas automaticamente na primeira execução.
+
+### 5. Política de execução do PowerShell
+O script de inicialização tenta ajustar automaticamente. Se falhar, execute uma vez como Administrador:
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
 
 ---
 
@@ -94,7 +100,7 @@ cd scripts
 - Salva os arquivos em `dados\raw\`
 - Solicita credenciais via prompt seguro do Windows (sem arquivo de senha em disco)
 
-Para servidores com SSH legado (algoritmos antigos), o script já inclui as opções de compatibilidade necessárias. Se necessário, configure `%USERPROFILE%\.ssh\config`:
+Para servidores com SSH legado (algoritmos antigos), o script de inicialização do dashboard cria automaticamente o arquivo `%USERPROFILE%\.ssh\config` com as opções de compatibilidade necessárias (se ainda não existir). O conteúdo gerado é:
 ```
 Host *
     KexAlgorithms +diffie-hellman-group1-sha1
