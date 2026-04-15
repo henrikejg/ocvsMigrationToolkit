@@ -1022,7 +1022,6 @@ const server = http.createServer(async (req, res) => {
         "utf8");
 
       sendLine("Iniciando " + scriptFile + " para Onda " + onda + "...", "info");
-      console.log("[exec]", PWSH_REAL, tmpScript, "cwd=" + scriptsCwd);
 
       // Estrutura do log
       if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
@@ -1055,7 +1054,6 @@ const server = http.createServer(async (req, res) => {
       proc.on("error", err => { sendLine("Erro: " + err.message, "erro"); appendLog("Erro: " + err.message, "erro"); });
       proc.on("close", code => {
         try { fs.unlinkSync(tmpScript); } catch {}
-        console.log("[close]", code);
         logData.fim      = new Date().toISOString();
         logData.exitCode = code;
         const msg = "Processo encerrado (exit " + code + ")";
@@ -1115,7 +1113,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.2.1`);
+  console.log(` OCVS Migration Dashboard v0.2.2`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);
