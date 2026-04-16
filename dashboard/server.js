@@ -830,6 +830,48 @@ const server = http.createServer(async (req, res) => {
         return respJson(res, { erro: e.message }, 500);
       }
     }
+    // Drilldown de SO: /api/onda/90/so-drilldown/Windows%20Server%202012
+    const mSO = endpoint.match(/^so-drilldown\/(.+)$/);
+    if (mSO) {
+      const versaoBuscada = decodeURIComponent(mSO[1]);
+      const excelPath = encontrarExcel();
+      if (!excelPath) return respJson(res, { erro: "Excel não encontrado" }, 404);
+      try {
+        const wb  = getXLSX().readFile(excelPath, { cellText: true, cellDates: false });
+        const ws  = wb.Sheets["vInfo"];
+        if (!ws) return respJson(res, { erro: "Aba vInfo não encontrada" }, 404);
+        const rows = getXLSX().utils.sheet_to_json(ws, { header: 1 });
+        const hdr  = rows[0] || [];
+        let colVM = -1, colIP = -1, colOnda = -1, colSO = -1, colAmb = -1;
+        hdr.forEach((v, i) => {
+          const s = String(v || "").trim();
+          if (s === "VM")                                              colVM   = i;
+          else if (/IP|Address/i.test(s))                             colIP   = i;
+          else if (s === "ONDA")                                      colOnda = i;
+          else if (s === "SO REVISADO RESUMIDO")                      colSO   = i;
+          else if (s === "PROD/NÃO-PROD" || s === "PROD/NAO-PROD")   colAmb  = i;
+        });
+
+        const servidores = [];
+        for (const row of rows.slice(1)) {
+          const vm   = String(row[colVM]   || "").trim();
+          const onda = String(row[colOnda] || "").trim();
+          const so   = String(row[colSO]   || "").trim() || "Desconhecido";
+          if (!vm || vm === "None" || vm === "A definir") continue;
+          if (!new RegExp(`Onda\\s+${numero}\\b`, "i").test(onda)) continue;
+          if (so !== versaoBuscada) continue;
+          servidores.push({
+            hostname: vm,
+            ip:       String(row[colIP]  || "").trim(),
+            ambiente: colAmb >= 0 ? String(row[colAmb] || "").trim() : "",
+            so,
+          });
+        }
+        return respJson(res, servidores);
+      } catch (e) {
+        return respJson(res, { erro: e.message }, 500);
+      }
+    }
     if (endpoint === "resumo-geral") {
       // Ignora filtro de tipo de conexao — usa dados brutos completos
       const dadosBrutos = lerProcessado(numero);
@@ -1250,7 +1292,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.3.3`);
+  console.log(` OCVS Migration Dashboard v0.3.4`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);

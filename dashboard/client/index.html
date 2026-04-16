@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OCVS Migration Dashboard v0.3.3</title>
+<title>OCVS Migration Dashboard v0.3.4</title>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -214,7 +214,7 @@
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">
     <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
   </svg>
-  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.3.3</small></h1>
+  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.3.4</small></h1>
   <span id="excel-path"></span>
   <div class="header-right">
     <div class="onda-select">
@@ -1118,7 +1118,13 @@ function renderSOPizza(familia) {
   if (leg) {
     leg.innerHTML = fatias.map(f => {
       const pct = Math.round(f.valor * 100 / total);
-      const onclick = f.familia ? ` onclick="renderSOPizza('${f.familia}')" style="cursor:pointer"` : '';
+      let onclick = '';
+      if (f.familia) {
+        onclick = ` onclick="renderSOPizza('${f.familia}')" style="cursor:pointer"`;
+      } else if (familia) {
+        // Nível 2: versão específica — clicável para drilldown
+        onclick = ` onclick="abrirSODrilldown('${f.label.replace(/'/g,"\\'")}')" style="cursor:pointer"`;
+      }
       return `<div${onclick} style="display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:6px;border-left:3px solid ${f.cor};transition:background 0.15s"
         onmouseover="this.style.background='#263348'" onmouseout="this.style.background=''">
         <div style="flex:1">
@@ -1132,7 +1138,6 @@ function renderSOPizza(familia) {
 
   // Click no canvas para drill-down
   canvas.onclick = (e) => {
-    if (familia) return; // já está no nível 2
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left - cx, my = e.clientY - rect.top - cy;
     const dist = Math.sqrt(mx*mx + my*my);
@@ -1145,7 +1150,10 @@ function renderSOPizza(familia) {
       if (en < -Math.PI/2) en += Math.PI*2;
       return ang >= s && ang <= en;
     });
-    if (hit && hit.familia) renderSOPizza(hit.familia);
+    if (hit) {
+      if (hit.familia) renderSOPizza(hit.familia);
+      else if (familia) abrirSODrilldown(hit.label);
+    }
   };
 
   canvas.style.cursor = familia ? "default" : "pointer";
@@ -1153,6 +1161,51 @@ function renderSOPizza(familia) {
   // Botão voltar
   const btnVoltar = document.getElementById("so-voltar");
   if (btnVoltar) btnVoltar.style.display = voltarVisivel ? "" : "none";
+}
+
+async function abrirSODrilldown(versao) {
+  const modal = document.getElementById("modal-root");
+  modal.innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)fecharModal()">
+      <div class="modal" style="max-width:700px">
+        <div class="modal-header">
+          <div><h3>${versao}</h3><div class="sub">Servidores da Onda ${ondaAtual} com este SO</div></div>
+          <button class="modal-close" onclick="fecharModal()">&#x2715;</button>
+        </div>
+        <div class="modal-body" style="padding:0">
+          <div class="loading">Carregando...</div>
+        </div>
+      </div>
+    </div>`;
+
+  try {
+    const servidores = await fetch(`${API}/api/onda/${ondaAtual}/so-drilldown/${encodeURIComponent(versao)}`).then(r => r.json());
+
+    const rows = servidores.map(s => {
+      const isProd = s.ambiente && /prod/i.test(s.ambiente) && !/n[aã]o/i.test(s.ambiente);
+      const icon = s.ambiente
+        ? (isProd
+          ? '<i data-lucide="shield" style="width:13px;height:13px;color:#4ade80;vertical-align:middle;margin-right:3px" title="Produtivo"></i>'
+          : '<i data-lucide="code" style="width:13px;height:13px;color:#fb923c;vertical-align:middle;margin-right:3px" title="Não-Produtivo"></i>')
+        : '';
+      return `<tr>
+        <td>${icon}${s.hostname}</td>
+        <td>${s.ip || '-'}</td>
+        <td>${s.ambiente || '-'}</td>
+      </tr>`;
+    }).join("");
+
+    document.querySelector(".modal-body").innerHTML = `
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Hostname</th><th>IP</th><th>Ambiente</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="3" class="empty">Nenhum servidor encontrado</td></tr>'}</tbody>
+      </table></div>
+      <div style="padding:10px 20px;font-size:0.75rem;color:#475569">${servidores.length} servidor${servidores.length !== 1 ? 'es' : ''}</div>`;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  } catch (e) {
+    document.querySelector(".modal-body").innerHTML = `<div class="alert" style="margin:20px">Erro: ${e.message}</div>`;
+  }
 }
 
 async function abrirDrilldown(categoria, label) {
