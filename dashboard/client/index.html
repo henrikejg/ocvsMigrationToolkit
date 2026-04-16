@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OCVS Migration Dashboard v0.3.1</title>
+<title>OCVS Migration Dashboard v0.3.2</title>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -214,7 +214,7 @@
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">
     <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
   </svg>
-  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.3.1</small></h1>
+  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.3.2</small></h1>
   <span id="excel-path"></span>
   <div class="header-right">
     <div class="onda-select">
@@ -442,12 +442,26 @@ async function renderDashboard() {
     <div class="grid-2">
       <div style="display:flex;flex-direction:column;gap:20px">
         ${panelPizzaHTML(pizza)}
+        <div class="panel" id="panel-so">
+          <h2>Distribuição de SO <span class="badge">servidores da onda</span></h2>
+          <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap">
+            <div style="position:relative;flex-shrink:0">
+              <canvas id="so-canvas" width="200" height="200"></canvas>
+              <div id="so-center" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none"></div>
+            </div>
+            <div id="so-legenda" style="flex:1;display:flex;flex-direction:column;gap:6px;font-size:0.83rem;min-width:200px"></div>
+          </div>
+          <div id="so-voltar" style="display:none;margin-top:12px">
+            <button class="btn-refresh" style="font-size:0.78rem;padding:4px 12px;background:#334155" onclick="renderSOPizza()">&#8592; Voltar</button>
+          </div>
+        </div>
       </div>
       ${panelTopHTML(topComm)}
     </div>
   `;
 
   renderPizza(pizza);
+  carregarDistribuicaoSO();
   // Popular mensagem de maturidade no estado inicial
   recarregarServidores();
 }
@@ -992,6 +1006,132 @@ function renderPizza(d) {
     });
     if (hit) abrirDrilldown(hit.cat, hit.label);
   };
+}
+
+// ── Gráfico de SO (drill-down) ────────────────────────────────────────────────
+let _soDados = null;
+
+async function carregarDistribuicaoSO() {
+  try {
+    _soDados = await fetch(`${API}/api/onda/${ondaAtual}/distribuicao-so`).then(r => r.json());
+    if (_soDados.erro) { document.getElementById("so-legenda").innerHTML = `<span style="color:#64748b">${_soDados.erro}</span>`; return; }
+    renderSOPizza();
+  } catch (e) {
+    document.getElementById("so-legenda").innerHTML = `<span style="color:#f87171">Erro: ${e.message}</span>`;
+  }
+}
+
+function renderSOPizza(familia) {
+  const canvas = document.getElementById("so-canvas");
+  if (!canvas || !_soDados) return;
+
+  const cores = {
+    "Windows": "#3b82f6", "Linux": "#f59e0b", "Outro": "#6b7280",
+  };
+  const coresVersao = ["#60a5fa","#34d399","#fbbf24","#f87171","#a78bfa","#fb923c","#38bdf8","#4ade80","#e879f9","#94a3b8"];
+
+  let fatias = [];
+  let voltarVisivel = false;
+
+  if (!familia) {
+    // Nível 1: Windows vs Linux vs Outro
+    for (const [fam, dados] of Object.entries(_soDados)) {
+      fatias.push({ label: fam, valor: dados.total, cor: cores[fam] || "#6b7280", familia: fam });
+    }
+  } else {
+    // Nível 2: versões dentro da família
+    voltarVisivel = true;
+    const dados = _soDados[familia];
+    if (!dados) return;
+    let ci = 0;
+    for (const [versao, qtd] of Object.entries(dados.versoes).sort((a,b) => b[1]-a[1])) {
+      fatias.push({ label: versao, valor: qtd, cor: coresVersao[ci % coresVersao.length] });
+      ci++;
+    }
+  }
+
+  fatias = fatias.filter(f => f.valor > 0);
+  const total = fatias.reduce((s, f) => s + f.valor, 0);
+  if (total === 0) return;
+
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const cx = W/2, cy = H/2;
+  const rOuter = Math.min(W,H)/2 - 8;
+  const rInner = rOuter * 0.52;
+
+  ctx.clearRect(0, 0, W, H);
+  canvas._soFatias = [];
+  let angulo = -Math.PI / 2;
+
+  fatias.forEach(f => {
+    const sweep = (f.valor / total) * Math.PI * 2;
+    const aStart = angulo, aEnd = angulo + sweep;
+
+    ctx.shadowColor = "rgba(0,0,0,0.35)";
+    ctx.shadowBlur  = 8;
+    ctx.beginPath();
+    ctx.moveTo(cx + rInner * Math.cos(aStart), cy + rInner * Math.sin(aStart));
+    ctx.arc(cx, cy, rOuter, aStart, aEnd);
+    ctx.arc(cx, cy, rInner, aEnd, aStart, true);
+    ctx.closePath();
+    ctx.fillStyle = f.cor;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#0f172a";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    canvas._soFatias.push({ ...f, aStart, aEnd });
+    angulo += sweep;
+  });
+
+  // Centro
+  const center = document.getElementById("so-center");
+  if (center) {
+    center.innerHTML = `<div style="font-size:1.1rem;font-weight:700;color:#f1f5f9">${total}</div><div style="font-size:0.65rem;color:#64748b">${familia || 'servidores'}</div>`;
+  }
+
+  // Legenda
+  const leg = document.getElementById("so-legenda");
+  if (leg) {
+    leg.innerHTML = fatias.map(f => {
+      const pct = Math.round(f.valor * 100 / total);
+      const onclick = f.familia ? ` onclick="renderSOPizza('${f.familia}')" style="cursor:pointer"` : '';
+      return `<div${onclick} style="display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:6px;border-left:3px solid ${f.cor};transition:background 0.15s"
+        onmouseover="this.style.background='#263348'" onmouseout="this.style.background=''">
+        <div style="flex:1">
+          <div style="color:#e2e8f0;font-weight:500">${f.label}</div>
+          <div style="color:#64748b;font-size:0.75rem;margin-top:2px">${f.valor} servidor${f.valor > 1 ? 'es' : ''}</div>
+        </div>
+        <div style="font-size:1.1rem;font-weight:700;color:${f.cor}">${pct}%</div>
+      </div>`;
+    }).join("");
+  }
+
+  // Click no canvas para drill-down
+  canvas.onclick = (e) => {
+    if (familia) return; // já está no nível 2
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left - cx, my = e.clientY - rect.top - cy;
+    const dist = Math.sqrt(mx*mx + my*my);
+    if (dist < rInner || dist > rOuter) return;
+    let ang = Math.atan2(my, mx);
+    if (ang < -Math.PI/2) ang += Math.PI*2;
+    const hit = canvas._soFatias.find(f => {
+      let s = f.aStart, en = f.aEnd;
+      if (s < -Math.PI/2) s += Math.PI*2;
+      if (en < -Math.PI/2) en += Math.PI*2;
+      return ang >= s && ang <= en;
+    });
+    if (hit && hit.familia) renderSOPizza(hit.familia);
+  };
+
+  canvas.style.cursor = familia ? "default" : "pointer";
+
+  // Botão voltar
+  const btnVoltar = document.getElementById("so-voltar");
+  if (btnVoltar) btnVoltar.style.display = voltarVisivel ? "" : "none";
 }
 
 async function abrirDrilldown(categoria, label) {

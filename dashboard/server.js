@@ -751,6 +751,50 @@ const server = http.createServer(async (req, res) => {
       const esconderDispensaveis = params.get("esconderDispensaveis") === "1";
       return respJson(res, calcServidoresOrigem(dados, semOnda, esconderDispensaveis));
     }
+    if (endpoint === "distribuicao-so") {
+      const excelPath = encontrarExcel();
+      if (!excelPath) return respJson(res, { erro: "Excel não encontrado" }, 404);
+      try {
+        const wb  = getXLSX().readFile(excelPath, { cellText: true, cellDates: false });
+        const ws  = wb.Sheets["vInfo"];
+        if (!ws) return respJson(res, { erro: "Aba vInfo não encontrada" }, 404);
+        const rows = getXLSX().utils.sheet_to_json(ws, { header: 1 });
+        const hdr  = rows[0] || [];
+        let colVM = -1, colOnda = -1, colSO = -1;
+        hdr.forEach((v, i) => {
+          const s = String(v || "").trim();
+          if (s === "VM")                       colVM   = i;
+          else if (s === "ONDA")                colOnda = i;
+          else if (s === "SO REVISADO RESUMIDO") colSO  = i;
+        });
+        if (colSO < 0) return respJson(res, { erro: "Coluna 'SO REVISADO RESUMIDO' não encontrada" }, 404);
+
+        const contagem = {};
+        for (const row of rows.slice(1)) {
+          const vm   = String(row[colVM]   || "").trim();
+          const onda = String(row[colOnda] || "").trim();
+          const so   = String(row[colSO]   || "").trim() || "Desconhecido";
+          if (!vm || vm === "None" || vm === "A definir") continue;
+          if (!new RegExp(`Onda\\s+${numero}\\b`, "i").test(onda)) continue;
+          contagem[so] = (contagem[so] || 0) + 1;
+        }
+
+        // Agrupar por família (Windows/Linux/Outro) e manter detalhe
+        const familias = {};
+        for (const [so, qtd] of Object.entries(contagem)) {
+          let familia = "Outro";
+          if (/windows/i.test(so)) familia = "Windows";
+          else if (/linux|ubuntu|debian|centos|rhel|red\s*hat|suse|oracle\s*linux|alma|rocky/i.test(so)) familia = "Linux";
+          if (!familias[familia]) familias[familia] = { total: 0, versoes: {} };
+          familias[familia].total += qtd;
+          familias[familia].versoes[so] = qtd;
+        }
+
+        return respJson(res, familias);
+      } catch (e) {
+        return respJson(res, { erro: e.message }, 500);
+      }
+    }
     if (endpoint === "resumo-geral") {
       // Ignora filtro de tipo de conexao — usa dados brutos completos
       const dadosBrutos = lerProcessado(numero);
@@ -1171,7 +1215,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.3.1`);
+  console.log(` OCVS Migration Dashboard v0.3.2`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);

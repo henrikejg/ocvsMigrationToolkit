@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Inicia o OCVS Migration Dashboard v0.3.1
+    Inicia o OCVS Migration Dashboard v0.3.2
 #>
 
 $scriptDir = $PSScriptRoot
