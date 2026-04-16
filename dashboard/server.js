@@ -67,15 +67,76 @@ function lerAbaAplicacoes(excelPath) {
     const mapa = {};
     for (let i = 1; i < rows.length; i++) {
       const [exec, app] = rows[i];
-      // chave exata, lowercase — igual ao PROCV do Excel (case-insensitive)
       if (exec && app) mapa[String(exec).trim().toLowerCase()] = String(app).trim();
     }
     cache.set("aplicacoes", mapa);
     return mapa;
   } catch (e) {
-    console.error("Erro ao ler aba servicos/Aplicacoes:", e.message);
+    console.error("Erro ao ler aba Aplicacoes:", e.message);
     return {};
   }
+}
+
+// ── Ler aba VARIAVEIS do Excel ────────────────────────────────────────────────
+// Retorna { CHAVE: [valor1, valor2, ...], ... }
+function lerVariaveis(excelPath) {
+  if (cache.has("variaveis")) return cache.get("variaveis");
+  try {
+    const wb  = getXLSX().readFile(excelPath, { cellText: true, cellDates: false });
+    const ws  = wb.Sheets["VARIAVEIS"];
+    if (!ws) { console.warn("[config] Aba 'VARIAVEIS' não encontrada no Excel — usando defaults."); return cache.set("variaveis", null) || null; }
+    const rows = getXLSX().utils.sheet_to_json(ws, { header: 1 });
+    const mapa = {};
+    for (let i = 1; i < rows.length; i++) {
+      const chave = String(rows[i][0] || "").trim().toUpperCase();
+      const valor = String(rows[i][1] || "").trim();
+      if (!chave || !valor) continue;
+      if (!mapa[chave]) mapa[chave] = [];
+      mapa[chave].push(valor);
+    }
+    cache.set("variaveis", mapa);
+    console.log(`[config] Variaveis carregadas: ${Object.keys(mapa).join(", ")}`);
+    return mapa;
+  } catch (e) {
+    console.error("Erro ao ler aba VARIAVEIS:", e.message);
+    return null;
+  }
+}
+
+// Obter IPs dispensáveis (AD/Zabbix) — do Excel ou fallback hardcoded
+function obterIpsDispensaveis() {
+  const excelPath = encontrarExcel();
+  const vars = excelPath ? lerVariaveis(excelPath) : null;
+  if (vars && vars["IGNORAR_AD_ZABBIX"] && vars["IGNORAR_AD_ZABBIX"].length > 0) {
+    return new Set(vars["IGNORAR_AD_ZABBIX"]);
+  }
+  // Fallback — será removido quando a aba VARIAVEIS estiver populada
+  return new Set(["10.62.169.11", "10.62.169.12", "10.62.169.13", "10.62.169.14", "10.62.169.25"]);
+}
+
+// Obter ranges OCVS em notação CIDR — do Excel ou fallback hardcoded
+function obterRangesOcvs() {
+  const excelPath = encontrarExcel();
+  const vars = excelPath ? lerVariaveis(excelPath) : null;
+  if (vars && vars["RANGES_OCVS"] && vars["RANGES_OCVS"].length > 0) {
+    return vars["RANGES_OCVS"];
+  }
+  // Fallback
+  return ["10.62.160.0/22", "10.62.176.0/22", "10.62.184.0/24"];
+}
+
+// Verificar se um IP está dentro de um range CIDR
+function ipEmCidr(ip, cidr) {
+  const [rede, bits] = cidr.split("/");
+  const mask = ~(0xFFFFFFFF >>> parseInt(bits)) >>> 0;
+  const ipNum = ip.split(".").reduce((s, o) => (s << 8) + parseInt(o), 0) >>> 0;
+  const redeNum = rede.split(".").reduce((s, o) => (s << 8) + parseInt(o), 0) >>> 0;
+  return (ipNum & mask) === (redeNum & mask);
+}
+
+function ipEhOcvs(ip) {
+  const ranges = obterRangesOcvs();
+  return ranges.some(cidr => ipEmCidr(ip, cidr));
 }
 
 function lerMapaOndas(excelPath) {
@@ -322,9 +383,7 @@ function calcTopComunicacoes(dados) {
 }
 
 function calcServidoresOrigem(dados, apenasSemdOnda = false, esconderDispensaveis = false) {
-  const IPS_DISPENSAVEIS = new Set([
-    "10.62.169.11", "10.62.169.12", "10.62.169.13", "10.62.169.14", "10.62.169.25"
-  ]);
+  const IPS_DISPENSAVEIS = obterIpsDispensaveis();
 
   // Filtrar apenas ESTABLISHED e SYN_SENT
   let filtrado = dados.filter(r => r.estado === "ESTABLISHED" || r.estado === "SYN_SENT");
@@ -697,9 +756,7 @@ const server = http.createServer(async (req, res) => {
       const dadosBrutos = lerProcessado(numero);
       if (!dadosBrutos) return respJson(res, { erro: "Onda não encontrada" }, 404);
 
-      const IPS_DISPENSAVEIS = new Set([
-        "10.62.169.11","10.62.169.12","10.62.169.13","10.62.169.14","10.62.169.25"
-      ]);
+      const IPS_DISPENSAVEIS = obterIpsDispensaveis();
 
       // Verificar se IP é privado (RFC 1918 + loopback + link-local)
       function isPrivado(ip) {
@@ -1114,7 +1171,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.3.0`);
+  console.log(` OCVS Migration Dashboard v0.3.1`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);

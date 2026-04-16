@@ -1,4 +1,4 @@
-# OCVS Migration Toolkit — v0.3.0
+# OCVS Migration Toolkit — v0.3.1
 
 Ferramentas para coleta, processamento e análise de dependências de rede (camada 4) durante migração de VMs OCVS para IaaS.
 
@@ -62,6 +62,16 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 A planilha Excel deve ficar na pasta raiz e precisa conter:
 - Aba **vInfo**: colunas `VM`, `Primary IP Address`, `ONDA`
 - Aba **Aplicacoes**: colunas `Executável`, `Aplicação` (mapeamento de processos para nomes amigáveis)
+- Aba **VARIAVEIS** (opcional): colunas `Variavel`, `Valor` — configurações dinâmicas:
+
+| Variavel | Valor | Descrição |
+|----------|-------|-----------|
+| IGNORAR_AD_ZABBIX | 10.0.0.1 | IPs a ignorar no filtro AD/Zabbix (uma linha por IP) |
+| IGNORAR_AD_ZABBIX | 10.0.0.2 | |
+| RANGES_OCVS | 10.0.0.0/22 | Ranges de rede internos em notação CIDR (uma linha por range) |
+| RANGES_OCVS | 10.0.4.0/24 | |
+
+Se a aba VARIAVEIS não existir, o dashboard usa valores padrão internos.
 
 ---
 
