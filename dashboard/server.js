@@ -139,6 +139,35 @@ function ipEhOcvs(ip) {
   return ranges.some(cidr => ipEmCidr(ip, cidr));
 }
 
+// Obter mapa hostname → ambiente (PROD / NÃO-PROD) do Excel
+function obterMapaAmbiente() {
+  if (cache.has("mapa_ambiente")) return cache.get("mapa_ambiente");
+  const excelPath = encontrarExcel();
+  if (!excelPath) return {};
+  try {
+    const wb  = getXLSX().readFile(excelPath, { cellText: true, cellDates: false });
+    const ws  = wb.Sheets["vInfo"];
+    if (!ws) return {};
+    const rows = getXLSX().utils.sheet_to_json(ws, { header: 1 });
+    const hdr  = rows[0] || [];
+    let colVM = -1, colAmb = -1;
+    hdr.forEach((v, i) => {
+      const s = String(v || "").trim();
+      if (s === "VM") colVM = i;
+      else if (s === "PROD/NÃO-PROD" || s === "PROD/NAO-PROD") colAmb = i;
+    });
+    if (colVM < 0 || colAmb < 0) return {};
+    const mapa = {};
+    for (const row of rows.slice(1)) {
+      const vm  = String(row[colVM]  || "").trim().toUpperCase();
+      const amb = String(row[colAmb] || "").trim();
+      if (vm && vm !== "NONE" && amb) mapa[vm] = amb;
+    }
+    cache.set("mapa_ambiente", mapa);
+    return mapa;
+  } catch { return {}; }
+}
+
 function lerMapaOndas(excelPath) {
   if (cache.has("mapa_ondas")) return cache.get("mapa_ondas");
   try {
@@ -384,6 +413,7 @@ function calcTopComunicacoes(dados) {
 
 function calcServidoresOrigem(dados, apenasSemdOnda = false, esconderDispensaveis = false) {
   const IPS_DISPENSAVEIS = obterIpsDispensaveis();
+  const mapaAmbiente    = obterMapaAmbiente();
 
   // Filtrar apenas ESTABLISHED e SYN_SENT
   let filtrado = dados.filter(r => r.estado === "ESTABLISHED" || r.estado === "SYN_SENT");
@@ -414,7 +444,7 @@ function calcServidoresOrigem(dados, apenasSemdOnda = false, esconderDispensavei
     const est = r.estado;
     const cnt = r.contador;
 
-    if (!arvore.has(h)) arvore.set(h, { hostname: h, ip_local: r.ip_local, ESTABLISHED: 0, SYN_SENT: 0, aplicacoes: new Map() });
+    if (!arvore.has(h)) arvore.set(h, { hostname: h, ip_local: r.ip_local, ambiente: mapaAmbiente[h.toUpperCase()] || "", ESTABLISHED: 0, SYN_SENT: 0, aplicacoes: new Map() });
     const nH = arvore.get(h);
     nH[est] = (nH[est] || 0) + cnt;
 
@@ -437,6 +467,7 @@ function calcServidoresOrigem(dados, apenasSemdOnda = false, esconderDispensavei
     .map(h => ({
       hostname:    h.hostname,
       ip_local:    h.ip_local,
+      ambiente:    h.ambiente,
       ESTABLISHED: h.ESTABLISHED,
       SYN_SENT:    h.SYN_SENT,
       aplicacoes: [...h.aplicacoes.values()]
@@ -580,6 +611,10 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === "/api/excel") {
     const p = encontrarExcel();
     return respJson(res, { path: p, found: !!p });
+  }
+
+  if (urlPath === "/api/mapa-ambiente") {
+    return respJson(res, obterMapaAmbiente());
   }
 
   if (urlPath === "/api/cache/clear") {
@@ -1215,7 +1250,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.3.2`);
+  console.log(` OCVS Migration Dashboard v0.3.3`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);
