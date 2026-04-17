@@ -35,8 +35,33 @@ const PROCESSADOS = path.join(DADOS_DIR, "PROCESSADOS");
 const CLIENT_DIR  = path.join(__dirname, "client");
 
 // Localizar Excel em V2/ — planilha deve estar na mesma pasta dos scripts
+// ── Configuração persistente do Excel ──────────────────────────────────────────
+const CONFIG_PATH = path.join(DADOS_DIR, "config.json");
+
+function lerConfig() {
+  try {
+    if (fs.existsSync(CONFIG_PATH)) return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+  } catch {}
+  return {};
+}
+
+function salvarConfig(cfg) {
+  const dir = path.dirname(CONFIG_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), "utf8");
+}
+
 function encontrarExcel() {
   if (cache.has("excel_path")) return cache.get("excel_path");
+
+  // 1. Path configurado pelo usuário
+  const cfg = lerConfig();
+  if (cfg.excelPath && fs.existsSync(cfg.excelPath)) {
+    cache.set("excel_path", cfg.excelPath);
+    return cfg.excelPath;
+  }
+
+  // 2. Fallback: buscar na pasta raiz do projeto
   try {
     const files = fs.readdirSync(BASE_DIR).filter(f => f.toLowerCase().endsWith(".xlsx"));
     if (files.length > 0) {
@@ -611,6 +636,75 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === "/api/excel") {
     const p = encontrarExcel();
     return respJson(res, { path: p, found: !!p });
+  }
+
+  // Configurar path do Excel (POST com { path: "C:\\..." })
+  if (urlPath === "/api/excel/configurar" && req.method === "POST") {
+    let body = "";
+    req.on("data", d => body += d);
+    req.on("end", () => {
+      try {
+        const { path: excelPath } = JSON.parse(body);
+        if (!excelPath) return respJson(res, { erro: "path obrigatório" }, 400);
+        if (!fs.existsSync(excelPath)) return respJson(res, { erro: "Arquivo não encontrado: " + excelPath }, 404);
+        if (!excelPath.toLowerCase().endsWith(".xlsx")) return respJson(res, { erro: "Arquivo deve ser .xlsx" }, 400);
+
+        const cfg = lerConfig();
+        cfg.excelPath = excelPath;
+        salvarConfig(cfg);
+
+        // Limpar caches que dependem do Excel
+        cache.delete("excel_path");
+        cache.delete("aplicacoes");
+        cache.delete("mapa_ondas");
+        cache.delete("variaveis");
+        cache.delete("mapa_ambiente");
+
+        cache.set("excel_path", excelPath);
+        console.log(`[config] Excel configurado: ${excelPath}`);
+        return respJson(res, { ok: true, path: excelPath });
+      } catch (e) {
+        return respJson(res, { erro: e.message }, 500);
+      }
+    });
+    return;
+  }
+
+  // Abrir dialog nativo do Windows para selecionar Excel
+  if (urlPath === "/api/excel/procurar" && req.method === "POST") {
+    const psCmd = [
+      "Add-Type -AssemblyName System.Windows.Forms",
+      "$f = New-Object System.Windows.Forms.Form",
+      "$f.TopMost = $true",
+      "$f.WindowState = 'Minimized'",
+      "$d = New-Object System.Windows.Forms.OpenFileDialog",
+      "$d.Filter = 'Excel (*.xlsx)|*.xlsx'",
+      "$d.Title = 'Selecionar planilha OCVS'",
+      "$null = $d.ShowDialog($f)",
+      "Write-Output $d.FileName",
+      "$f.Dispose()",
+    ].join("; ");
+
+    const proc = spawn("powershell", ["-NoProfile", "-STA", "-Command", psCmd], {
+      windowsHide: false,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    proc.stdout.on("data", d => stdout += d.toString());
+    proc.stderr.on("data", d => {}); // ignorar stderr
+    proc.on("close", () => {
+      const result = stdout.trim();
+      if (result) {
+        return respJson(res, { path: result });
+      } else {
+        return respJson(res, { path: null, cancelado: true });
+      }
+    });
+    proc.on("error", err => {
+      return respJson(res, { erro: err.message }, 500);
+    });
+    return;
   }
 
   if (urlPath === "/api/mapa-ambiente") {
@@ -1292,7 +1386,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.3.4`);
+  console.log(` OCVS Migration Dashboard v0.3.5`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);

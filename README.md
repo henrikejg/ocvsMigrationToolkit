@@ -1,4 +1,4 @@
-# OCVS Migration Toolkit — v0.3.4
+# OCVS Migration Toolkit — v0.3.5
 
 Ferramentas para coleta, processamento e análise de dependências de rede (camada 4) durante migração de VMs OCVS para IaaS.
 
@@ -54,12 +54,14 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
       CONSOLIDADO/    <- arquivo consolidado intermediário
     PROCESSADOS/      <- ONDAXX_processado.txt (saída final)
     ocvs.db           <- banco SQLite (gerado automaticamente)
+    config.json       <- configuração local (path do Excel, etc.)
     logs/             <- logs de execução (JSON)
-  SERVIDORES_OCVS.xlsx  <- planilha com servidores e ondas (manter aqui)
   README.md
 ```
 
-A planilha Excel deve ficar na pasta raiz e precisa conter:
+A planilha Excel pode estar em qualquer local da máquina ou rede. Na primeira execução, o dashboard solicita a seleção do arquivo via dialog nativo do Windows. O path é salvo em `dados/config.json` e persiste entre reinícios. Para alterar, use o botão "Alterar" na tela inicial.
+
+A planilha precisa conter:
 - Aba **vInfo**: colunas `VM`, `Primary IP Address`, `ONDA`
 - Aba **Aplicacoes**: colunas `Executável`, `Aplicação` (mapeamento de processos para nomes amigáveis)
 - Aba **VARIAVEIS** (opcional): colunas `Variavel`, `Valor` — configurações dinâmicas:

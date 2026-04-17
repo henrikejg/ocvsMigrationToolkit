@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OCVS Migration Dashboard v0.3.4</title>
+<title>OCVS Migration Dashboard v0.3.5</title>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -214,7 +214,7 @@
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">
     <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
   </svg>
-  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.3.4</small></h1>
+  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.3.5</small></h1>
   <span id="excel-path"></span>
   <div class="header-right">
     <div class="onda-select">
@@ -324,7 +324,30 @@ async function renderHome() {
   main.innerHTML = `<div class="loading">Carregando visão geral...</div>`;
 
   try {
-    const dados = await fetch(`${API}/api/visao-geral`).then(r => r.json());
+    const [excelInfo, dados] = await Promise.all([
+      fetch(`${API}/api/excel`).then(r => r.json()),
+      fetch(`${API}/api/visao-geral`).then(r => r.json()),
+    ]);
+
+    // Painel de Excel
+    const excelNome = excelInfo.path ? excelInfo.path.split(/[\\/]/).pop() : null;
+    const excelDir  = excelInfo.path ? excelInfo.path.replace(/[\\/][^\\/]+$/, '') : null;
+    const excelHTML = excelInfo.found
+      ? `<div class="panel" style="padding:12px 20px;display:flex;align-items:center;gap:12px;border-color:#166534">
+          <i data-lucide="file-spreadsheet" style="width:20px;height:20px;color:#4ade80;flex-shrink:0"></i>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:0.88rem;color:#f1f5f9;font-weight:500">${excelNome}</div>
+            <div style="font-size:0.72rem;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${excelInfo.path}">${excelDir}</div>
+          </div>
+          <button class="btn-refresh" style="font-size:0.78rem;padding:4px 12px;background:#334155" onclick="selecionarExcel()">Alterar</button>
+        </div>`
+      : `<div class="panel" style="padding:20px;text-align:center;border-color:#7f1d1d">
+          <div style="color:#fca5a5;font-size:0.9rem;margin-bottom:12px">Nenhuma planilha Excel configurada</div>
+          <div style="color:#64748b;font-size:0.82rem;margin-bottom:16px">Selecione o arquivo Excel com os dados dos servidores e ondas para começar.</div>
+          <button class="btn-refresh" style="background:#1d4ed8" onclick="selecionarExcel()">
+            <i data-lucide="folder-open" style="width:14px;height:14px;vertical-align:middle;margin-right:6px"></i>Selecionar Planilha
+          </button>
+        </div>`;
 
     const ultimoLogHTML = dados.ultimoLog
       ? `${dados.ultimoLog.script} — Onda ${dados.ultimoLog.onda} — ${new Date(dados.ultimoLog.inicio).toLocaleString("pt-BR")} — ${dados.ultimoLog.exitCode === 0 ? '<span style="color:#4ade80">OK</span>' : '<span style="color:#f87171">Erro</span>'}`
@@ -363,6 +386,8 @@ async function renderHome() {
     }).join("");
 
     main.innerHTML = `
+      ${excelHTML}
+
       <div class="cards-row">
         ${cardHTML("Ondas no Excel", dados.totalOndasExcel, "definidas na planilha")}
         ${cardHTML("Ondas processadas", dados.totalOndasProcessadas, "com arquivo .txt gerado")}
@@ -389,8 +414,37 @@ async function renderHome() {
         </div>
       </div>
     `;
+    if (typeof lucide !== "undefined") lucide.createIcons();
   } catch (e) {
     main.innerHTML = `<div class="alert">Erro ao carregar visão geral: ${e.message}</div>`;
+  }
+}
+
+async function selecionarExcel() {
+  // Abrir dialog nativo do Windows
+  try {
+    const r = await fetch(`${API}/api/excel/procurar`, { method: "POST" }).then(r => r.json());
+    if (r.cancelado || !r.path) return;
+
+    // Configurar o path
+    const cfg = await fetch(`${API}/api/excel/configurar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: r.path }),
+    }).then(r => r.json());
+
+    if (cfg.ok) {
+      // Limpar cache e recarregar tudo
+      await fetch(`${API}/api/cache/clear`);
+      try { _mapaAmbiente = await fetch(`${API}/api/mapa-ambiente`).then(r => r.json()); } catch {}
+      // Atualizar header
+      document.getElementById("excel-path").textContent = r.path.split(/[\\/]/).pop();
+      renderHome();
+    } else {
+      alert(`Erro: ${cfg.erro}`);
+    }
+  } catch (e) {
+    alert(`Erro ao selecionar Excel: ${e.message}`);
   }
 }
 
