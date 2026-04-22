@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OCVS Migration Dashboard v0.3.7</title>
+<title>OCVS Migration Dashboard v0.3.8</title>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -214,7 +214,7 @@
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">
     <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
   </svg>
-  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.3.7</small></h1>
+  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.3.8</small></h1>
   <span id="excel-path"></span>
   <div class="header-right">
     <div class="onda-select">
@@ -831,8 +831,8 @@ function panelServidoresHTML(servidores) {
   const totalSyn = servidores.reduce((s, r) => s + r.SYN_SENT, 0);
 
   return `<div class="panel" id="painel-servidores">
-    <h2>Servidores de Origem <span class="badge">ESTABLISHED + SYN_SENT apenas</span>
-      <button class="btn-refresh" style="margin-left:auto;font-size:0.78rem;padding:4px 12px;background:#334155"
+    <h2>Mapa de Conexões <span class="badge">ESTABLISHED + SYN_SENT apenas</span>
+      <button class="btn-refresh" style="margin-left:auto;font-size:0.78rem;padding:4px 12px;background:#334155;white-space:nowrap"
               onclick="exportarServidoresHTML()">&#11123; Exportar HTML</button>
     </h2>
     <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
@@ -851,7 +851,13 @@ function panelServidoresHTML(servidores) {
     </div>
     <div class="tree">
       <div class="tree-row tree-header">
-        <span>Servidor / Aplicação / IP Remoto</span>
+        <span>
+          <button id="btn-expandir" onclick="event.stopPropagation();toggleExpandirTudo()"
+                  style="background:none;border:1px solid #475569;color:#64748b;cursor:pointer;
+                         font-size:0.68rem;padding:1px 6px;border-radius:4px;margin-right:8px;vertical-align:middle"
+                  title="Expandir / Recolher tudo">&#9660;</button>
+          Servidor / Aplicação / IP Remoto
+        </span>
         <span class="tree-num est">ESTABLISHED</span>
         <span class="tree-num syn">SYN_SENT</span>
         <span class="tree-num tot">Total</span>
@@ -887,6 +893,20 @@ function filtrarServidores(q) {
   });
 }
 
+let _treeExpandido = false;
+function toggleExpandirTudo() {
+  _treeExpandido = !_treeExpandido;
+  const btn = document.getElementById("btn-expandir");
+  document.querySelectorAll("#tree-body .tree-children").forEach(ch => {
+    ch.style.display = _treeExpandido ? "block" : "none";
+  });
+  document.querySelectorAll("#tree-body .tree-toggle").forEach(tg => {
+    tg.textContent = _treeExpandido ? "▼" : "▶";
+  });
+  if (btn) btn.innerHTML = _treeExpandido ? "&#9650;" : "&#9660;";
+  if (btn) btn.title = _treeExpandido ? "Recolher tudo" : "Expandir tudo";
+}
+
 function exportarServidoresHTML() {
   const dados = _ultimosServidores;
   if (!dados || dados.length === 0) { alert("Nenhum dado para exportar."); return; }
@@ -919,10 +939,10 @@ function exportarServidoresHTML() {
   const totalEst = dados.reduce((s,r) => s+r.ESTABLISHED, 0);
   const totalSyn = dados.reduce((s,r) => s+r.SYN_SENT, 0);
 
-  const togScript = '<' + 'script>function tog(el){var ch=el.parentElement.querySelector(".ch");if(!ch)return;var open=ch.style.display!=="none";ch.style.display=open?"none":"block";var tg=el.querySelector(".tg");if(tg)tg.textContent=open?"▶":"▼";}</' + 'script>';
+  const togScript = '<' + 'script>function tog(el){var ch=el.parentElement.querySelector(".ch");if(!ch)return;var open=ch.style.display!=="none";ch.style.display=open?"none":"block";var tg=el.querySelector(".tg");if(tg)tg.textContent=open?"▶":"▼";}var _exp=false;function togAll(){_exp=!_exp;document.querySelectorAll(".ch").forEach(function(c){c.style.display=_exp?"block":"none"});document.querySelectorAll(".tg").forEach(function(t){t.textContent=_exp?"▼":"▶"});var b=document.getElementById("btn-exp");if(b)b.innerHTML=_exp?"&#9650;":"&#9660;";}</' + 'script>';
 
   const html = `<!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="UTF-8"><title>Servidores de Origem — ${ondaLabel}</title>
+<html lang="pt-BR"><head><meta charset="UTF-8"><title>Mapa de Conexões — ${ondaLabel}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;padding:24px}
@@ -943,9 +963,9 @@ small{color:#64748b;font-weight:400}
 .onda-tag.ok{color:#64748b}
 .onda-tag.sem{color:#ef4444}
 </style></head><body>
-<h1>Servidores de Origem — ${esc(ondaLabel)}</h1>
+<h1>Mapa de Conexões — ${esc(ondaLabel)}</h1>
 <div class="sub">Exportado em ${agora} — ESTABLISHED + SYN_SENT</div>
-<div class="hdr"><span>Servidor / Aplicação / IP Remoto</span><span class="n">ESTABLISHED</span><span class="n">SYN_SENT</span><span class="n">Total</span></div>
+<div class="hdr"><span><button id="btn-exp" onclick="togAll()" style="background:none;border:1px solid #475569;color:#64748b;cursor:pointer;font-size:0.68rem;padding:1px 6px;border-radius:4px;margin-right:8px">&#9660;</button>Servidor / Aplicação / IP Remoto</span><span class="n">ESTABLISHED</span><span class="n">SYN_SENT</span><span class="n">Total</span></div>
 ${treeHTML}
 <div class="total"><span>Total Geral</span><span class="n est">${totalEst}</span><span class="n syn">${totalSyn}</span><span class="n tot">${totalEst+totalSyn}</span></div>
 ${togScript}
