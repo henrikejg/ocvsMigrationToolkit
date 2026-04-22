@@ -1285,13 +1285,17 @@ const server = http.createServer(async (req, res) => {
       const usuarioArg = (script === "coletar" && usuario) ? " -Usuario '" + usuario + "'" : "";
       const selArg     = (script === "coletar" && servidoresSelecionados) ? " -ServidoresSelecionados '" + servidoresSelecionados + "'" : "";
 
+      // Passar o path do Excel configurado para os scripts
+      const excelPath  = encontrarExcel();
+      const excelArg   = excelPath ? " -ArquivoExcel '" + excelPath.replace(/'/g, "''") + "'" : "";
+
       const PWSH_REAL = process.env.OCVS_PWSH && fs.existsSync(process.env.OCVS_PWSH)
         ? process.env.OCVS_PWSH
         : (() => { try { return require("child_process").execSync("where pwsh", {encoding:"utf8"}).trim().split(/\r?\n/)[0]; } catch {} return "powershell.exe"; })();
 
       const tmpScript = path.join(require("os").tmpdir(), "ocvs_" + Date.now() + ".ps1");
       fs.writeFileSync(tmpScript,
-        "& '" + scriptPath.replace(/'/g, "''") + "' -NumeroOnda '" + onda + "'" + usuarioArg + senhaArg + selArg + "\n",
+        "& '" + scriptPath.replace(/'/g, "''") + "' -NumeroOnda '" + onda + "'" + excelArg + usuarioArg + senhaArg + selArg + "\n",
         "utf8");
 
       sendLine("Iniciando " + scriptFile + " para Onda " + onda + "...", "info");
@@ -1386,7 +1390,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.3.5`);
+  console.log(` OCVS Migration Dashboard v0.3.6`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);
