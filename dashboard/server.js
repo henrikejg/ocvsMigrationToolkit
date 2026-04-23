@@ -436,7 +436,7 @@ function calcTopComunicacoes(dados) {
   return [...grupos.values()].sort((a, b) => b.contador - a.contador).slice(0, 50);
 }
 
-function calcServidoresOrigem(dados, apenasSemdOnda = false, esconderDispensaveis = false) {
+function calcServidoresOrigem(dados, { ignorarAtual = false, ignorarAnteriores = false, esconderDispensaveis = false } = {}) {
   const IPS_DISPENSAVEIS = obterIpsDispensaveis();
   const mapaAmbiente    = obterMapaAmbiente();
 
@@ -447,14 +447,29 @@ function calcServidoresOrigem(dados, apenasSemdOnda = false, esconderDispensavei
     filtrado = filtrado.filter(r => !IPS_DISPENSAVEIS.has(r.ip_remoto));
   }
 
-  // Filtro opcional: apenas conexoes sem onda agendada no destino
-  // Mesmo critério do calcStatusMigracao para categoria "nao_mapeado"
-  if (apenasSemdOnda) {
+  // Filtro: ignorar conexões com destino na mesma onda
+  if (ignorarAtual) {
     filtrado = filtrado.filter(r => {
       const od = r.onda_destino || "";
+      const oo = r.onda_origem  || "";
       if (!od || od === "FORA DE OCVS" || od === "A definir") return true;
-      // Sem número de onda extraível = sem onda agendada
-      return !/Onda\s+\d+/i.test(od);
+      // Remover se destino é a mesma onda que a origem
+      return od !== oo;
+    });
+  }
+
+  // Filtro: ignorar conexões com destino em ondas anteriores
+  if (ignorarAnteriores) {
+    filtrado = filtrado.filter(r => {
+      const od = r.onda_destino || "";
+      const oo = r.onda_origem  || "";
+      if (!od || od === "FORA DE OCVS" || od === "A definir") return true;
+      const mDest = od.match(/Onda\s+(\d+)/i);
+      const mOrig = oo.match(/Onda\s+(\d+)/i);
+      if (mDest && mOrig) {
+        return parseInt(mDest[1]) >= parseInt(mOrig[1]);
+      }
+      return true;
     });
   }
 
@@ -876,9 +891,10 @@ const server = http.createServer(async (req, res) => {
     if (endpoint === "top-comunicacoes")      return respJson(res, calcTopComunicacoes(dados));
     if (endpoint === "grafo")                 return respJson(res, calcGrafo(dados));
     if (endpoint === "servidores-origem") {
-      const semOnda            = params.get("semOnda")            === "1";
+      const ignorarAtual       = params.get("ignorarAtual")       === "1";
+      const ignorarAnteriores  = params.get("ignorarAnteriores")  === "1";
       const esconderDispensaveis = params.get("esconderDispensaveis") === "1";
-      return respJson(res, calcServidoresOrigem(dados, semOnda, esconderDispensaveis));
+      return respJson(res, calcServidoresOrigem(dados, { ignorarAtual, ignorarAnteriores, esconderDispensaveis }));
     }
     if (endpoint === "distribuicao-so") {
       const excelPath = encontrarExcel();
@@ -1390,7 +1406,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.3.8`);
+  console.log(` OCVS Migration Dashboard v0.3.9`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);

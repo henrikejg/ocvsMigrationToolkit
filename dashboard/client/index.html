@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OCVS Migration Dashboard v0.3.8</title>
+<title>OCVS Migration Dashboard v0.3.9</title>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -214,7 +214,7 @@
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">
     <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
   </svg>
-  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.3.8</small></h1>
+  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.3.9</small></h1>
   <span id="excel-path"></span>
   <div class="header-right">
     <div class="onda-select">
@@ -478,7 +478,7 @@ async function renderDashboard() {
   const [status, topComm, servidores, pizza] = await Promise.all([
     fetchOp(`${API}/api/onda/${ondaAtual}/status-migracao${qs}`),
     fetchOp(`${API}/api/onda/${ondaAtual}/top-comunicacoes${qs}`),
-    fetchOp(`${API}/api/onda/${ondaAtual}/servidores-origem${qs ? qs + '&' : '?'}semOnda=1&esconderDispensaveis=1`),
+    fetchOp(`${API}/api/onda/${ondaAtual}/servidores-origem${qs ? qs + '&' : '?'}ignorarAtual=1&ignorarAnteriores=1&esconderDispensaveis=1`),
     fetchOp(`${API}/api/onda/${ondaAtual}/resumo-geral`),
   ]);
 
@@ -784,13 +784,15 @@ let _ultimosServidores = [];
 
 async function recarregarServidores() {
   const ocvs             = document.getElementById("sel-ocvs").value;
-  const semOnda          = document.getElementById("chk-sem-onda").checked;
-  const esconderDisp     = document.getElementById("chk-dispensaveis") && document.getElementById("chk-dispensaveis").checked;
+  const ignorarAtual      = document.getElementById("chk-ignorar-atual").checked;
+  const ignorarAnteriores = document.getElementById("chk-ignorar-anteriores").checked;
+  const esconderDisp      = document.getElementById("chk-dispensaveis") && document.getElementById("chk-dispensaveis").checked;
 
   const params = new URLSearchParams();
-  if (ocvs)          params.set("ocvs", ocvs);
-  if (semOnda)       params.set("semOnda", "1");
-  if (esconderDisp)  params.set("esconderDispensaveis", "1");
+  if (ocvs)              params.set("ocvs", ocvs);
+  if (ignorarAtual)      params.set("ignorarAtual", "1");
+  if (ignorarAnteriores) params.set("ignorarAnteriores", "1");
+  if (esconderDisp)      params.set("esconderDispensaveis", "1");
   const qs = params.toString() ? "?" + params.toString() : "";
 
   document.getElementById("tree-body").innerHTML = `<div class="loading">Atualizando...</div>`;
@@ -811,7 +813,7 @@ async function recarregarServidores() {
   // Mensagem de maturidade — aparece quando ambos os filtros estão ativos e total = 0
   const msgDiv = document.getElementById("msg-maturidade");
   if (msgDiv) {
-    if ((totalEst + totalSyn) === 0 && semOnda && esconderDisp) {
+    if ((totalEst + totalSyn) === 0 && ignorarAtual && ignorarAnteriores && esconderDisp) {
       msgDiv.innerHTML = `<div style="margin-top:16px;padding:16px;background:#14532d;border:1px solid #166534;
                   border-radius:8px;display:flex;align-items:center;gap:12px">
         <span style="font-size:1.5rem">✅</span>
@@ -839,9 +841,14 @@ function panelServidoresHTML(servidores) {
       <input class="search" id="srv-search" placeholder="Filtrar por hostname..."
              oninput="filtrarServidores(this.value)" style="margin:0;flex:1">
       <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#94a3b8;cursor:pointer;white-space:nowrap">
-        <input type="checkbox" id="chk-sem-onda" onchange="recarregarServidores()"
+        <input type="checkbox" id="chk-ignorar-atual" onchange="recarregarServidores()"
                checked style="width:14px;height:14px;cursor:pointer;accent-color:#ef4444">
-        Ignorar Onda atual e passadas
+        Ignorar onda atual
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#94a3b8;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="chk-ignorar-anteriores" onchange="recarregarServidores()"
+               checked style="width:14px;height:14px;cursor:pointer;accent-color:#f59e0b">
+        Ignorar ondas anteriores
       </label>
       <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#94a3b8;cursor:pointer;white-space:nowrap">
         <input type="checkbox" id="chk-dispensaveis" onchange="recarregarServidores()"
