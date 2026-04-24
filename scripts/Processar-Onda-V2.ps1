@@ -57,7 +57,7 @@ for ($i = 0; $i -lt $hostnames.Count; $i++) {
     $h = $hostnames[$i].Trim()
     if (-not $h) { continue }
 
-    Write-Host "[$($i+1)/$($hostnames.Count)] " -NoNewline -ForegroundColor Gray
+    Write-Host "[$($i+1)/$($hostnames.Count)] " -NoNewline -ForegroundColor DarkGray
 
     $args_servidor = @{
         Hostname     = $h

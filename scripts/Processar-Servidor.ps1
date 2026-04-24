@@ -56,6 +56,9 @@ if (-not (Test-Path $AwkExe)) {
 function Write-Ok   { param($m) Write-Host "  v $m" -ForegroundColor Green  }
 function Write-Fail { param($m) Write-Host "  x $m" -ForegroundColor Red    }
 function Write-Info { param($m) Write-Host "  $m" -ForegroundColor Cyan     }
+function Write-TS   { param($m, $cor) $ts = Get-Date -Format "HH:mm:ss"; if ($cor) { Write-Host "  [$ts] $m" -ForegroundColor $cor } else { Write-Host "  [$ts] $m" } }
+function Write-TSok { param($m) $ts = Get-Date -Format "HH:mm:ss"; Write-Host "  [$ts] v $m" -ForegroundColor Green }
+function Write-TSfail { param($m) $ts = Get-Date -Format "HH:mm:ss"; Write-Host "  [$ts] x $m" -ForegroundColor Red }
 
 # Converter paths Windows para formato que o AWK aceita (barras normais)
 function ConvertTo-AwkPath { param($p) $p -replace '\\', '/' }
@@ -99,14 +102,17 @@ if ((Test-Path $ArqControle) -and -not $Forcar) {
         $controle = $null
     }
     if ($controle -and $rawModificado -le $ultimoProcessamento) {
-        Write-Ok "$Hostname — ja esta atualizado (raw nao mudou)"
+        $ts = Get-Date -Format "HH:mm:ss"
+        Write-Host "[$ts] $Hostname — ja atualizado (raw nao mudou)" -ForegroundColor Green
         exit 0
     }
 }
 
-Write-Host "Processando $Hostname..." -ForegroundColor Yellow
+$swTotal = [System.Diagnostics.Stopwatch]::StartNew()
+$ts = Get-Date -Format "HH:mm:ss"
+Write-Host "[$ts] $HostnameUpper" -ForegroundColor White
 $linhasRaw = (Get-Content $ArquivoRaw | Measure-Object -Line).Lines
-Write-Info "$linhasRaw linhas no arquivo raw"
+Write-TS "$($linhasRaw.ToString('N0')) linhas no arquivo raw" "Cyan"
 
 # ── Etapa 0: Normalizar hostname na coluna 2 do arquivo raw ───────────────────
 # Garante que todas as linhas tenham o hostname correto (da planilha),
@@ -125,16 +131,16 @@ $linhasNorm = for ($li = 0; $li -lt $linhasArq.Count; $li++) {
 }
 if ($alterado) {
     [System.IO.File]::WriteAllLines($ArquivoRaw, $linhasNorm, [System.Text.Encoding]::UTF8)
-    Write-Info "Hostname normalizado no arquivo raw"
+    Write-TS "Hostname normalizado no arquivo raw" "Yellow"
 }
 
 # ── Etapa 1: Pré-filtro (separar privado/público) ─────────────────────────────
-Write-Info "Separando IPs privados e publicos..."
+Write-TS "Separando IPs privados e publicos..."
 & $AwkExe -f $AwkFiltrar -v "PRIVADO=$(ConvertTo-AwkPath $ArqPrivado)" -v "PUBLICO=$(ConvertTo-AwkPath $ArqPublico)" $ArquivoRaw
 
 $linhasPrivado = if (Test-Path $ArqPrivado) { (Get-Content $ArqPrivado | Measure-Object -Line).Lines } else { 0 }
 $linhasPublico = if (Test-Path $ArqPublico) { (Get-Content $ArqPublico | Measure-Object -Line).Lines } else { 0 }
-Write-Info "Privado: $linhasPrivado | Publico: $linhasPublico"
+Write-TS "Privado: $($linhasPrivado.ToString('N0')) | Publico: $($linhasPublico.ToString('N0'))" "Cyan"
 
 # ── Etapa 2: Identificar linhas novas (incremental) ───────────────────────────
 $arquivoParaEnriquecer = $ArqPrivado
@@ -143,38 +149,38 @@ $modoIncremental = $false
 if ($controle -and -not $Forcar -and (Test-Path $ArqProcessado)) {
     $ultimoTimestamp = $controle.ultimoTimestamp
     if ($ultimoTimestamp) {
-        Write-Info "Modo incremental — filtrando linhas apos $ultimoTimestamp"
+        Write-TS "Modo incremental — filtrando linhas apos $ultimoTimestamp"
         $tempNovas = Join-Path $env:TEMP "ocvs_novas_$HostnameUpper.txt"
         # Filtrar linhas com timestamp maior que o último processado
         & $AwkExe -F ";" -v "ULTIMO=$ultimoTimestamp" 'BEGIN{OFS=";"} $1 > ULTIMO {print}' $ArqPrivado | Set-Content -Path $tempNovas -Encoding UTF8
         $linhasNovas = (Get-Content $tempNovas | Measure-Object -Line).Lines
         if ($linhasNovas -eq 0) {
-            Write-Ok "$Hostname — sem linhas novas no privado"
+            Write-TSok "$Hostname — sem linhas novas no privado"
             Remove-Item $tempNovas -Force -ErrorAction SilentlyContinue
             # Atualizar controle mesmo sem linhas novas (raw pode ter mudado por outro motivo)
             $controle.dataProcessamento = (Get-Date).ToString("o")
             $controle | ConvertTo-Json | Set-Content -Path $ArqControle -Encoding UTF8
             exit 0
         }
-        Write-Info "$linhasNovas linhas novas detectadas"
+        Write-TS "$linhasNovas linhas novas detectadas" "Cyan"
         $arquivoParaEnriquecer = $tempNovas
         $modoIncremental = $true
     }
 }
 
 # ── Etapa 3: Enriquecer com dependencias_ocvs.awk ─────────────────────────────
-Write-Info "Enriquecendo dados..."
+Write-TS "Classificando conexoes..."
 $tempEnriquecido = Join-Path $env:TEMP "ocvs_enriquecido_$HostnameUpper.txt"
 & $AwkExe -f $AwkDependencias $arquivoParaEnriquecer | Set-Content -Path $tempEnriquecido -Encoding UTF8
 
 # ── Etapa 4: Aglutinar ────────────────────────────────────────────────────────
-Write-Info "Aglutinando conexoes..."
+Write-TS "Consolidando conexoes..."
 $tempAglutinado = Join-Path $env:TEMP "ocvs_aglutinado_$HostnameUpper.txt"
 & $AwkExe -f $AwkAglutinar $tempEnriquecido | Set-Content -Path $tempAglutinado -Encoding UTF8
 
 # ── Etapa 5: Merge com processado existente (se incremental) ──────────────────
 if ($modoIncremental -and (Test-Path $ArqProcessado)) {
-    Write-Info "Mesclando com dados anteriores e re-aglutinando..."
+    Write-TS "Mesclando com dados anteriores..."
     $tempMerge = Join-Path $env:TEMP "ocvs_merge_$HostnameUpper.txt"
     # Concatenar anterior + novo
     Get-Content $ArqProcessado, $tempAglutinado | Set-Content -Path $tempMerge -Encoding UTF8
@@ -187,18 +193,19 @@ if ($modoIncremental -and (Test-Path $ArqProcessado)) {
 }
 
 $linhasProcessadas = (Get-Content $ArqProcessado | Measure-Object -Line).Lines
-Write-Ok "$Hostname — $linhasProcessadas linhas processadas (privado)"
+$swTotal.Stop()
+Write-TSok "$HostnameUpper — $($linhasProcessadas.ToString('N0')) conexoes ($([math]::Round($swTotal.Elapsed.TotalSeconds))s)"
 
 # ── Etapa 6: Processar públicos (se solicitado) ───────────────────────────────
 if ($IncluirPublicos -and (Test-Path $ArqPublico) -and $linhasPublico -gt 0) {
-    Write-Info "Processando comunicacoes publicas..."
+    Write-TS "Classificando conexoes publicas..."
     $tempEnrPub = Join-Path $env:TEMP "ocvs_enr_pub_$HostnameUpper.txt"
     $tempAglPub = Join-Path $env:TEMP "ocvs_agl_pub_$HostnameUpper.txt"
     & $AwkExe -f $AwkDependencias $ArqPublico | Set-Content -Path $tempEnrPub -Encoding UTF8
     & $AwkExe -f $AwkAglutinar $tempEnrPub | Set-Content -Path $tempAglPub -Encoding UTF8
     Copy-Item $tempAglPub $ArqProcPub -Force
     $linhasProcPub = (Get-Content $ArqProcPub | Measure-Object -Line).Lines
-    Write-Ok "$Hostname — $linhasProcPub linhas processadas (publico)"
+    Write-TSok "$HostnameUpper — $($linhasProcPub.ToString('N0')) conexoes publicas"
     Remove-Item $tempEnrPub, $tempAglPub -Force -ErrorAction SilentlyContinue
 }
 
@@ -228,4 +235,4 @@ Remove-Item (Join-Path $env:TEMP "ocvs_novas_$HostnameUpper.txt") -Force -ErrorA
 Remove-Item $tempEnriquecido -Force -ErrorAction SilentlyContinue
 Remove-Item $tempAglutinado -Force -ErrorAction SilentlyContinue
 
-Write-Ok "$Hostname concluido"
+Write-Host ""

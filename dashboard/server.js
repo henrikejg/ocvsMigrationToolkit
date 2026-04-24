@@ -821,7 +821,18 @@ const server = http.createServer(async (req, res) => {
         if (rawFile) {
           const stat = fs.statSync(rawFile);
           rawData = stat.mtime.toISOString();
-          try { rawLinhas = fs.readFileSync(rawFile, "utf8").split("\n").filter(l => l.trim()).length; } catch {}
+          // Usar controle se disponível (evita ler arquivos grandes)
+          const arqControle = path.join(DADOS_DIR, "controle", `${vmUpper}.json`);
+          if (fs.existsSync(arqControle)) {
+            try {
+              const ctrl = JSON.parse(fs.readFileSync(arqControle, "utf8"));
+              rawLinhas = ctrl.linhasRaw || 0;
+            } catch {}
+          }
+          // Se não tem controle, estimar pelo tamanho do arquivo (~100 bytes por linha)
+          if (!rawLinhas) {
+            rawLinhas = Math.round(stat.size / 100);
+          }
         }
 
         const mOnda = onda.match(/Onda\s+(\w+)/i);
@@ -1767,7 +1778,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.4.2`);
+  console.log(` OCVS Migration Dashboard v0.4.3`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);

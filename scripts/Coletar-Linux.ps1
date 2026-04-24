@@ -73,6 +73,9 @@ $Destino = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPa
 function Write-Ok   { param($m) Write-Host "  v $m" -ForegroundColor Green  }
 function Write-Fail { param($m) Write-Host "  x $m" -ForegroundColor Red    }
 function Write-Warn { param($m) Write-Host "  ! $m" -ForegroundColor Yellow }
+function Write-TS   { param($m, $cor) $ts = Get-Date -Format "HH:mm:ss"; if ($cor) { Write-Host "  [$ts] $m" -ForegroundColor $cor } else { Write-Host "  [$ts] $m" } }
+function Write-TSok { param($m) $ts = Get-Date -Format "HH:mm:ss"; Write-Host "  [$ts] v $m" -ForegroundColor Green }
+function Write-TSfail { param($m) $ts = Get-Date -Format "HH:mm:ss"; Write-Host "  [$ts] x $m" -ForegroundColor Red }
 function Write-Sep  { Write-Host ("=" * 40) }
 function Write-Dash { Write-Host ("-" * 40) }
 
@@ -215,6 +218,8 @@ function Copiar-ComCompressao {
     $sshArgs = $SshOpts + @("${Usuario}@${Servidor}", "cd /tmp && tar czf - netstat_*.txt 2>/dev/null")
 
     try {
+        Write-TS "Conectando via SSH..."
+        $swSSH = [System.Diagnostics.Stopwatch]::StartNew()
         $r = Invoke-SSH -SshArgs $sshArgs -CapturarSaida $false
         $proc = $r.Proc
 
@@ -223,24 +228,26 @@ function Copiar-ComCompressao {
         # ── Transferencia com barra de progresso ──────────────────────────────
         $srcStream  = $proc.StandardOutput.BaseStream
         $fs         = [System.IO.File]::OpenWrite($tempFile)
-        $buffer     = New-Object byte[] 65536  # 64 KB por leitura
+        $buffer     = New-Object byte[] 65536
         $totalBytes = 0
         $swProgress = [System.Diagnostics.Stopwatch]::StartNew()
-
-        Write-Host "    Transferindo..." -NoNewline
+        $primeiroBloco = $true
 
         while ($true) {
             $lidos = $srcStream.Read($buffer, 0, $buffer.Length)
             if ($lidos -eq 0) { break }
+            if ($primeiroBloco) {
+                $swSSH.Stop()
+                Write-TS "Compactando e transferindo... (SSH em $([math]::Round($swSSH.Elapsed.TotalSeconds))s)"
+                $primeiroBloco = $false
+            }
             $fs.Write($buffer, 0, $lidos)
             $totalBytes += $lidos
 
-            # Atualizar progresso a cada ~200ms para nao sobrecarregar o terminal
             if ($swProgress.ElapsedMilliseconds -ge 200) {
-                $mbRecebidos = [math]::Round($totalBytes / 1MB, 2)
                 Write-Progress -Activity "Coletando $Servidor" `
                     -Status ("Recebido: {0}" -f (Format-Bytes $totalBytes)) `
-                    -PercentComplete -1  # indeterminado — nao sabemos o tamanho final
+                    -PercentComplete -1
                 $swProgress.Restart()
             }
         }
@@ -253,15 +260,24 @@ function Copiar-ComCompressao {
         $tamanhoCompactado = (Get-Item $tempFile -ErrorAction SilentlyContinue).Length
 
         if ($proc.ExitCode -ne 0 -or -not $tamanhoCompactado -or $tamanhoCompactado -eq 0) {
-            Write-Host ""
-            Write-Fail "Falha na compactacao/transferencia (exit $($proc.ExitCode))"
-            if ($stderrMsg) { Write-Host "    SSH erro: $stderrMsg" -ForegroundColor DarkRed }
+            $swSSH.Stop()
+            $tempoSSH = [math]::Round($swSSH.Elapsed.TotalSeconds)
+            # Identificar tipo de erro
+            if ($stderrMsg -match "Permission denied|password") {
+                Write-TSfail "Falha na autenticacao SSH (${tempoSSH}s)"
+            } elseif ($stderrMsg -match "Connection refused|No route|Network is unreachable") {
+                Write-TSfail "Conexao recusada ou rede inacessivel (${tempoSSH}s)"
+            } elseif ($stderrMsg -match "timed out|Connection timed out") {
+                Write-TSfail "Timeout na conexao SSH (${tempoSSH}s)"
+            } else {
+                Write-TSfail "Falha na transferencia (exit $($proc.ExitCode), ${tempoSSH}s)"
+            }
+            if ($stderrMsg) { Write-Host "    $stderrMsg" -ForegroundColor DarkRed }
             Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
             return $false
         }
 
-        # Extrair tar.gz — tar.exe nativo (Win10 1803+) ou fallback WSL
-        Write-Host "`r    Extraindo...                    " -NoNewline
+        Write-TS "Extraindo e salvando localmente..."
         $extraido = $false
 
         # Listar arquivos dentro do tar para saber o nome exato que vai chegar
@@ -313,22 +329,22 @@ function Copiar-ComCompressao {
 
         if ($tamanhoOriginal -and $tamanhoCompactado) {
             $economia = $tamanhoOriginal - $tamanhoCompactado
+            $pctEconomia = [math]::Round(($economia / $tamanhoOriginal) * 100, 1)
             $script:TotalEconomiaBanda    += $economia
             $script:TotalBaixado          += $tamanhoCompactado
             $script:TotalOriginal         += $tamanhoOriginal
-            Write-Host ("`r    v {0} originais -> {1} transferidos (economia de {2})" -f `
-                (Format-Bytes $tamanhoOriginal), (Format-Bytes $tamanhoCompactado), (Format-Bytes $economia)) `
-                -ForegroundColor Green
+            Write-TS ("{0} originais -> {1} transferidos (economia {2}%)" -f `
+                (Format-Bytes $tamanhoOriginal), (Format-Bytes $tamanhoCompactado), $pctEconomia) "Cyan"
         } else {
             $script:TotalBaixado  += $tamanhoCompactado
-            Write-Host ("`r    v Transferido: {0}" -f (Format-Bytes $tamanhoCompactado)) -ForegroundColor Green
+            Write-TS ("Transferido: {0}" -f (Format-Bytes $tamanhoCompactado)) "Cyan"
         }
 
         Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
         return $true
 
     } catch {
-        Write-Fail "Erro inesperado: $_"
+        Write-TSfail "Erro inesperado: $_"
         Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
         return $false
     }
@@ -433,44 +449,50 @@ foreach ($servidor in $servidores) {
     $totalServidores++
     $nomeServidor = $servidor -replace '\.', '_'
     $hostnameEsperado = if ($mapaIpHostname.ContainsKey($servidor)) { $mapaIpHostname[$servidor] } else { $servidor }
+    $swServidor = [System.Diagnostics.Stopwatch]::StartNew()
 
-    Write-Host "Verificando $servidor..."
+    $ts = Get-Date -Format "HH:mm:ss"
+    Write-Host "[$ts] $hostnameEsperado ($servidor) [$totalServidores/$($servidores.Count)]" -ForegroundColor White
+    Write-TS "Verificando conectividade..."
     $tipo = Get-ServidorTipo -Servidor $servidor
 
     switch ($tipo) {
         "linux" {
             $totalLinux++
-            Write-Ok "Servidor Linux detectado"
-            Write-Host "  Copiando com compressao..."
+            Write-TS "Linux detectado" "Green"
             if (Copiar-ComCompressao -Servidor $servidor -DestinoLocal $Destino -NomeServidor $nomeServidor -HostnameEsperado $hostnameEsperado) {
-                Write-Ok "Sucesso na copia com compressao"
+                $swServidor.Stop()
+                Write-TSok "Concluido em $([math]::Round($swServidor.Elapsed.TotalSeconds))s"
                 $totalSucesso++
             } else {
-                Write-Fail "Falha na copia"
+                $swServidor.Stop()
+                Write-TSfail "Falha apos $([math]::Round($swServidor.Elapsed.TotalSeconds))s"
                 $totalFalha++
             }
         }
         "windows" {
             $totalWindows++
-            Write-Fail "Servidor Windows detectado (pulado - nao suporta SSH)"
+            Write-TSfail "Windows detectado (pulado — sem suporte SSH)"
         }
         "indisponivel" {
             $totalIndisponivel++
-            Write-Fail "Servidor indisponivel (sem resposta ao ping)"
+            Write-TSfail "Indisponivel (sem resposta ao ping)"
         }
         "indeterminado" {
             $totalIndeterminado++
-            Write-Warn "TTL fora das faixas esperadas - tentando conexao SSH..."
+            Write-TS "SO indeterminado — tentando SSH..." "Yellow"
             if (Copiar-ComCompressao -Servidor $servidor -DestinoLocal $Destino -NomeServidor $nomeServidor -HostnameEsperado $hostnameEsperado) {
-                Write-Ok "Sucesso na copia com compressao (possivelmente Linux)"
+                $swServidor.Stop()
+                Write-TSok "Concluido em $([math]::Round($swServidor.Elapsed.TotalSeconds))s"
                 $totalSucesso++
             } else {
-                Write-Fail "Falha na copia"
+                $swServidor.Stop()
+                Write-TSfail "Falha apos $([math]::Round($swServidor.Elapsed.TotalSeconds))s"
                 $totalFalha++
             }
         }
         default {
-            Write-Fail "Nao foi possivel determinar o sistema operacional"
+            Write-TSfail "SO nao identificado"
         }
     }
 
