@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OCVS Migration Dashboard v0.4.1</title>
+<title>OCVS Migration Dashboard v0.4.2</title>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -225,7 +225,7 @@
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">
     <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
   </svg>
-  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.4.1</small></h1>
+  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.4.2</small></h1>
   <span id="excel-path"></span>
   <div class="header-right">
     <div class="onda-select">
@@ -596,13 +596,18 @@ function filtrarTabelaColeta(q) {
 
 function selecionarColetaPorStatus(coletado) {
   document.querySelectorAll("#tbody-coleta tr").forEach(tr => {
+    if (tr.style.display === "none") return;
     const chk = tr.querySelector(".chk-coleta");
     if (chk) chk.checked = (tr.dataset.coletado === String(coletado));
   });
 }
 
 function selecionarTodosColeta(marcar) {
-  document.querySelectorAll(".chk-coleta").forEach(c => c.checked = marcar);
+  document.querySelectorAll("#tbody-coleta tr").forEach(tr => {
+    if (tr.style.display === "none") return;
+    const chk = tr.querySelector(".chk-coleta");
+    if (chk) chk.checked = marcar;
+  });
   const master = document.getElementById("chk-coleta-todos");
   if (master) master.checked = marcar;
 }
@@ -756,13 +761,13 @@ async function abrirTelaServidores() {
         <table id="tbl-servidores">
           <thead><tr>
             <th style="width:30px"><input type="checkbox" id="chk-srv-todos" onchange="selecionarTodosServidores(this.checked)" style="cursor:pointer"></th>
-            <th>Servidor</th>
-            <th>IP</th>
-            <th>Onda</th>
-            <th>SO</th>
-            <th>Raw</th>
-            <th>Processado</th>
-            <th>Status</th>
+            <th style="cursor:pointer" onclick="ordenarServidores('hostname')">Servidor ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarServidores('ip')">IP ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarServidores('ondaLabel')">Onda ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarServidores('so')">SO ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarServidores('linhasRaw')">Raw ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarServidores('linhasProcessadas')">Processado ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarServidores('status')">Status ⇅</th>
           </tr></thead>
           <tbody id="tbody-servidores">
             ${renderLinhasServidores(servidores)}
@@ -816,15 +821,39 @@ function filtrarTabelaServidores(q) {
   });
 }
 
+let _srvSort = { col: "hostname", asc: true };
+function ordenarServidores(col) {
+  if (_srvSort.col === col) {
+    _srvSort.asc = !_srvSort.asc;
+  } else {
+    _srvSort.col = col;
+    _srvSort.asc = true;
+  }
+  const lista = window._servidoresLista;
+  lista.sort((a, b) => {
+    let va = a[col] || "", vb = b[col] || "";
+    if (typeof va === "number" && typeof vb === "number") return _srvSort.asc ? va - vb : vb - va;
+    va = String(va).toLowerCase(); vb = String(vb).toLowerCase();
+    return _srvSort.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
+  document.getElementById("tbody-servidores").innerHTML = renderLinhasServidores(lista);
+  if (typeof lucide !== "undefined") lucide.createIcons();
+}
+
 function selecionarPorStatus(status) {
   document.querySelectorAll("#tbody-servidores tr").forEach(tr => {
+    if (tr.style.display === "none") return;
     const chk = tr.querySelector(".chk-srv");
     if (chk) chk.checked = tr.dataset.status === status;
   });
 }
 
 function selecionarTodosServidores(marcar) {
-  document.querySelectorAll(".chk-srv").forEach(c => c.checked = marcar);
+  document.querySelectorAll("#tbody-servidores tr").forEach(tr => {
+    if (tr.style.display === "none") return;
+    const chk = tr.querySelector(".chk-srv");
+    if (chk) chk.checked = marcar;
+  });
   const master = document.getElementById("chk-srv-todos");
   if (master) master.checked = marcar;
 }
