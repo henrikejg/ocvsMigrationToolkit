@@ -21,3 +21,10 @@ dados/logs/
 
 # Configuração local (path do Excel, etc.)
 dados/config.json
+
+# Dados processados por servidor
+dados/privado/
+dados/publico/
+dados/processados_servidor/
+dados/processados_servidor_publico/
+dados/controle/

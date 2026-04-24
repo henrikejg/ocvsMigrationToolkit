@@ -766,6 +766,190 @@ const server = http.createServer(async (req, res) => {
       return respJson(res, { erro: e.message }, 500);
     }
   }
+
+  // ── Lista de servidores Linux para coleta ───────────────────────────────────
+  if (urlPath === "/api/servidores-linux") {
+    try {
+      const excelPath = encontrarExcel();
+      if (!excelPath) return respJson(res, { erro: "Excel não encontrado" }, 404);
+
+      const wb  = getXLSX().readFile(excelPath, { cellText: true, cellDates: false });
+      const ws  = wb.Sheets["vInfo"];
+      if (!ws) return respJson(res, { erro: "Aba vInfo não encontrada" }, 404);
+      const rows = getXLSX().utils.sheet_to_json(ws, { header: 1 });
+      const hdr  = rows[0] || [];
+
+      let colVM = -1, colIP = -1, colOnda = -1, colSO = -1, colAmb = -1, colPower = -1;
+      hdr.forEach((v, i) => {
+        const s = String(v || "").trim();
+        if (s === "VM")                                              colVM    = i;
+        else if (/IP|Address/i.test(s))                             colIP    = i;
+        else if (s === "ONDA")                                      colOnda  = i;
+        else if (s === "SO REVISADO RESUMIDO")                      colSO    = i;
+        else if (s === "PROD/NÃO-PROD" || s === "PROD/NAO-PROD")   colAmb   = i;
+        else if (/powerstate/i.test(s))                             colPower = i;
+      });
+
+      const dirRaw = path.join(DADOS_DIR, "raw");
+      const servidores = [];
+
+      for (const row of rows.slice(1)) {
+        const vm    = String(row[colVM]    || "").trim();
+        const ip    = String(row[colIP]    || "").trim();
+        const onda  = String(row[colOnda]  || "").trim();
+        const so    = colSO >= 0 ? String(row[colSO] || "").trim() : "";
+        const amb   = colAmb >= 0 ? String(row[colAmb] || "").trim() : "";
+        const power = colPower >= 0 ? String(row[colPower] || "").trim() : "PoweredOn";
+
+        if (!vm || vm === "None" || vm === "A definir") continue;
+        if (!/poweredon/i.test(power)) continue;
+        // Filtrar apenas Linux
+        if (!/linux|ubuntu|debian|centos|rhel|red\s*hat|suse|oracle\s*linux|alma|rocky/i.test(so)) continue;
+
+        const vmUpper = vm.toUpperCase();
+        const vmLower = vm.toLowerCase();
+
+        // Verificar se tem arquivo raw
+        const rawFile = [
+          path.join(dirRaw, `netstat_${vmUpper}.txt`),
+          path.join(dirRaw, `netstat_${vmLower}.txt`),
+          path.join(dirRaw, `netstat_${vm}.txt`),
+        ].find(f => fs.existsSync(f));
+
+        let rawLinhas = 0;
+        let rawData = "";
+        if (rawFile) {
+          const stat = fs.statSync(rawFile);
+          rawData = stat.mtime.toISOString();
+          try { rawLinhas = fs.readFileSync(rawFile, "utf8").split("\n").filter(l => l.trim()).length; } catch {}
+        }
+
+        const mOnda = onda.match(/Onda\s+(\w+)/i);
+
+        servidores.push({
+          hostname: vm,
+          ip,
+          onda: mOnda ? mOnda[1] : "",
+          ondaLabel: onda,
+          so,
+          ambiente: amb,
+          rawExists: !!rawFile,
+          rawLinhas,
+          rawData,
+        });
+      }
+
+      return respJson(res, servidores);
+    } catch (e) {
+      return respJson(res, { erro: e.message }, 500);
+    }
+  }
+
+  // ── Lista de servidores com status de processamento ─────────────────────────
+  if (urlPath === "/api/servidores") {
+    try {
+      const excelPath = encontrarExcel();
+      if (!excelPath) return respJson(res, { erro: "Excel não encontrado" }, 404);
+
+      const wb  = getXLSX().readFile(excelPath, { cellText: true, cellDates: false });
+      const ws  = wb.Sheets["vInfo"];
+      if (!ws) return respJson(res, { erro: "Aba vInfo não encontrada" }, 404);
+      const rows = getXLSX().utils.sheet_to_json(ws, { header: 1 });
+      const hdr  = rows[0] || [];
+
+      let colVM = -1, colIP = -1, colOnda = -1, colSO = -1, colAmb = -1, colPower = -1;
+      hdr.forEach((v, i) => {
+        const s = String(v || "").trim();
+        if (s === "VM")                                              colVM    = i;
+        else if (/IP|Address/i.test(s))                             colIP    = i;
+        else if (s === "ONDA")                                      colOnda  = i;
+        else if (s === "SO REVISADO RESUMIDO")                      colSO    = i;
+        else if (s === "PROD/NÃO-PROD" || s === "PROD/NAO-PROD")   colAmb   = i;
+        else if (/powerstate/i.test(s))                             colPower = i;
+      });
+
+      const dirRaw         = path.join(DADOS_DIR, "raw");
+      const dirPrivado     = path.join(DADOS_DIR, "privado");
+      const dirProcessados = path.join(DADOS_DIR, "processados_servidor");
+      const dirControle    = path.join(DADOS_DIR, "controle");
+
+      const servidores = [];
+      for (const row of rows.slice(1)) {
+        const vm    = String(row[colVM]    || "").trim();
+        const ip    = String(row[colIP]    || "").trim();
+        const onda  = String(row[colOnda]  || "").trim();
+        const so    = colSO >= 0 ? String(row[colSO] || "").trim() : "";
+        const amb   = colAmb >= 0 ? String(row[colAmb] || "").trim() : "";
+        const power = colPower >= 0 ? String(row[colPower] || "").trim() : "PoweredOn";
+
+        if (!vm || vm === "None" || vm === "A definir") continue;
+        if (!/poweredon/i.test(power)) continue;
+
+        const vmUpper = vm.toUpperCase();
+        const vmLower = vm.toLowerCase();
+
+        // Verificar arquivos
+        const rawExists = fs.existsSync(path.join(dirRaw, `netstat_${vmUpper}.txt`))
+                       || fs.existsSync(path.join(dirRaw, `netstat_${vmLower}.txt`))
+                       || fs.existsSync(path.join(dirRaw, `netstat_${vm}.txt`));
+        const privadoExists = fs.existsSync(path.join(dirPrivado, `netstat_${vmUpper}.txt`));
+        const processadoExists = fs.existsSync(path.join(dirProcessados, `netstat_${vmUpper}.txt`));
+
+        // Ler controle se existir
+        let controle = null;
+        const arqControle = path.join(dirControle, `${vmUpper}.json`);
+        if (fs.existsSync(arqControle)) {
+          try { controle = JSON.parse(fs.readFileSync(arqControle, "utf8")); } catch {}
+        }
+
+        // Determinar status
+        let status = "sem_coleta";
+        if (rawExists && processadoExists && controle) {
+          // Verificar se raw é mais novo que o processamento
+          const rawFile = [
+            path.join(dirRaw, `netstat_${vmUpper}.txt`),
+            path.join(dirRaw, `netstat_${vmLower}.txt`),
+            path.join(dirRaw, `netstat_${vm}.txt`),
+          ].find(f => fs.existsSync(f));
+          if (rawFile) {
+            const rawMod = fs.statSync(rawFile).mtime;
+            try {
+              const procDate = new Date(controle.dataProcessamento);
+              status = rawMod > procDate ? "raw_novo" : "atualizado";
+            } catch { status = "raw_novo"; }
+          }
+        } else if (rawExists && !processadoExists) {
+          status = "raw_novo";
+        }
+
+        // Extrair número da onda
+        const mOnda = onda.match(/Onda\s+(\w+)/i);
+        const ondaNum = mOnda ? mOnda[1] : "";
+
+        servidores.push({
+          hostname: vm,
+          ip,
+          onda: ondaNum,
+          ondaLabel: onda,
+          so,
+          ambiente: amb,
+          rawExists,
+          privadoExists,
+          processadoExists,
+          status,
+          linhasRaw:        controle ? controle.linhasRaw        || 0 : 0,
+          linhasPrivado:    controle ? controle.linhasPrivado    || 0 : 0,
+          linhasProcessadas: controle ? controle.linhasProcessadas || 0 : 0,
+          dataProcessamento: controle ? controle.dataProcessamento || "" : "",
+        });
+      }
+
+      return respJson(res, servidores);
+    } catch (e) {
+      return respJson(res, { erro: e.message }, 500);
+    }
+  }
+
   // ── Visão geral — resumo de todas as ondas ──────────────────────────────────
   if (urlPath === "/api/visao-geral") {
     try {
@@ -829,7 +1013,7 @@ const server = http.createServer(async (req, res) => {
           ingerida:   dbOnda ? dbOnda.ingerida : false,
           conexoesBD: dbOnda ? dbOnda.conexoes : 0,
         };
-      });
+      }).filter(o => o.previstos > 0);
 
       return respJson(res, {
         totalOndasExcel:      Object.keys(ondasExcel).length,
@@ -1278,8 +1462,8 @@ const server = http.createServer(async (req, res) => {
       let params;
       try { params = JSON.parse(body); } catch { res.writeHead(400); res.end("JSON invalido"); return; }
 
-      const { script, onda, usuario, senha, servidoresSelecionados } = params;
-      const scriptMap = { "coletar": "Coletar-Linux.ps1", "processar": "Processar-Onda.ps1" };
+      const { script, onda, usuario, senha, servidoresSelecionados, forcar, incluirPublicos, hostname } = params;
+      const scriptMap = { "coletar": "Coletar-Linux.ps1", "processar": "Processar-Onda-V2.ps1", "processar-legado": "Processar-Onda.ps1", "processar-servidor": "Processar-Servidor.ps1" };
       const scriptFile = scriptMap[script];
       if (!scriptFile) { res.writeHead(400); res.end("Script desconhecido"); return; }
 
@@ -1301,9 +1485,18 @@ const server = http.createServer(async (req, res) => {
       const usuarioArg = (script === "coletar" && usuario) ? " -Usuario '" + usuario + "'" : "";
       const selArg     = (script === "coletar" && servidoresSelecionados) ? " -ServidoresSelecionados '" + servidoresSelecionados + "'" : "";
 
-      // Passar o path do Excel configurado para os scripts
       const excelPath  = encontrarExcel();
       const excelArg   = excelPath ? " -ArquivoExcel '" + excelPath.replace(/'/g, "''") + "'" : "";
+      const forcarArg  = forcar ? " -Forcar" : "";
+      const pubArg     = incluirPublicos ? " -IncluirPublicos" : "";
+
+      // Montar comando conforme o tipo de script
+      let cmdArgs = "";
+      if (script === "processar-servidor") {
+        cmdArgs = " -Hostname '" + hostname + "'" + excelArg + forcarArg + pubArg;
+      } else {
+        cmdArgs = " -NumeroOnda '" + onda + "'" + excelArg + usuarioArg + senhaArg + selArg + forcarArg + pubArg;
+      }
 
       const PWSH_REAL = process.env.OCVS_PWSH && fs.existsSync(process.env.OCVS_PWSH)
         ? process.env.OCVS_PWSH
@@ -1311,10 +1504,13 @@ const server = http.createServer(async (req, res) => {
 
       const tmpScript = path.join(require("os").tmpdir(), "ocvs_" + Date.now() + ".ps1");
       fs.writeFileSync(tmpScript,
-        "& '" + scriptPath.replace(/'/g, "''") + "' -NumeroOnda '" + onda + "'" + excelArg + usuarioArg + senhaArg + selArg + "\n",
+        "& '" + scriptPath.replace(/'/g, "''") + "'" + cmdArgs + "\n",
         "utf8");
 
-      sendLine("Iniciando " + scriptFile + " para Onda " + onda + "...", "info");
+      const msgInicio = script === "processar-servidor"
+        ? "Iniciando " + scriptFile + " para " + hostname + "..."
+        : "Iniciando " + scriptFile + " para Onda " + onda + "...";
+      sendLine(msgInicio, "info");
 
       // Estrutura do log
       if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
@@ -1334,7 +1530,7 @@ const server = http.createServer(async (req, res) => {
         logData.linhas.push({ tipo: tipo || "log", linha });
         fs.writeFileSync(logFile, JSON.stringify(logData), "utf8");
       };
-      appendLog("Iniciando " + scriptFile + " para Onda " + onda + "...", "info");
+      appendLog(msgInicio, "info");
 
       // Usar detached:true para desacoplar do processo pai (Node filho de PS7)
       const proc = spawn(PWSH_REAL,
@@ -1354,14 +1550,90 @@ const server = http.createServer(async (req, res) => {
         sendLine(msg, code === 0 ? "sucesso" : "erro");
 
         // Se foi um processamento bem-sucedido, ingerir no banco automaticamente
-        if (code === 0 && script === "processar") {
+        if (code === 0 && (script === "processar" || script === "processar-legado")) {
           sendLine("Ingerindo dados no banco...", "info");
-          db.initDB().then(() => {
-            return lerProcessadoAsync(onda); // sempre lê do .txt na ingestão
-          }).then(linhas => {
-            if (linhas) {
+          db.initDB().then(async () => {
+            // Tentar ler dos processados_servidor/ (novo fluxo V2)
+            const dirProcServ = path.join(DADOS_DIR, "processados_servidor");
+            let linhas = null;
+
+            if (fs.existsSync(dirProcServ)) {
+              // Ler todos os arquivos de servidores da onda
               const excelPath = encontrarExcel();
-              if (excelPath) db.sincronizarAplicacoes(lerAbaAplicacoes(excelPath));
+              const aplicacoes = excelPath ? lerAbaAplicacoes(excelPath) : {};
+              const mapaOndas  = excelPath ? lerMapaOndas(excelPath)     : {};
+
+              // Pre-computar mapa sem dominio
+              const mapaOndaSemDominio = {};
+              for (const k of Object.keys(mapaOndas)) {
+                const semDom = k.split(".")[0];
+                if (!mapaOndaSemDominio[semDom]) mapaOndaSemDominio[semDom] = mapaOndas[k];
+              }
+
+              // Ler hostnames da onda
+              let hostnames = [];
+              try {
+                const wb  = getXLSX().readFile(excelPath, { cellText: true, cellDates: false });
+                const ws  = wb.Sheets["vInfo"];
+                if (ws) {
+                  const rows = getXLSX().utils.sheet_to_json(ws, { header: 1 });
+                  const hdr  = rows[0] || [];
+                  let colVM = -1, colOnda = -1;
+                  hdr.forEach((v, i) => {
+                    const s = String(v || "").trim();
+                    if (s === "VM")   colVM   = i;
+                    if (s === "ONDA") colOnda = i;
+                  });
+                  hostnames = rows.slice(1)
+                    .filter(r => new RegExp(`Onda\\s+${onda}\\b`, "i").test(String(r[colOnda] || "")))
+                    .map(r => String(r[colVM] || "").trim().toUpperCase())
+                    .filter(h => h && h !== "NONE");
+                }
+              } catch {}
+
+              // Concatenar processados de cada servidor
+              const todasLinhas = [];
+              for (const h of hostnames) {
+                const arq = path.join(dirProcServ, `netstat_${h}.txt`);
+                if (!fs.existsSync(arq)) continue;
+                const buf = fs.readFileSync(arq, "utf8");
+                for (const linha of buf.split("\n")) {
+                  const l = linha.trimEnd();
+                  if (!l) continue;
+                  const c = l.split(";");
+                  while (c.length < 17) c.push("");
+                  const processo = (c[7] || "").trim();
+                  const ipRemoto = (c[11] || "").trim();
+                  const hostname = (c[1] || "").trim();
+                  const contadorRaw = (c[16] || "1").replace(/\D/g, "") || "1";
+                  const procKey = processo.toLowerCase();
+                  const aplicacao = aplicacoes[procKey] || "Falta Identificar";
+                  const hostnameUpper = hostname.toUpperCase();
+                  const hostnameSemDominio = hostnameUpper.split(".")[0];
+                  const ondaOrigem = mapaOndas[hostnameUpper] || mapaOndas[hostnameSemDominio] || mapaOndaSemDominio[hostnameSemDominio] || "";
+                  const ondaDestino = mapaOndas[ipRemoto] || "";
+
+                  todasLinhas.push({
+                    data: c[0], hostname, proto: c[2], local: c[3], remoto: c[4],
+                    estado: c[5], pid: c[6], processo, aplicacao,
+                    ip_local: c[9], porta_local: c[10], ip_remoto: ipRemoto,
+                    porta_remota: c[12], direcao: c[13], ocvs: c[14],
+                    portas_fmt: c[15], contador: parseInt(contadorRaw, 10) || 1,
+                    onda_origem: ondaOrigem, onda_destino: ondaDestino,
+                  });
+                }
+              }
+              if (todasLinhas.length > 0) linhas = todasLinhas;
+            }
+
+            // Fallback: ler do .txt da onda (fluxo legado)
+            if (!linhas) {
+              linhas = await lerProcessadoAsync(onda);
+            }
+
+            if (linhas) {
+              const excelPath2 = encontrarExcel();
+              if (excelPath2) db.sincronizarAplicacoes(lerAbaAplicacoes(excelPath2));
               const r = db.ingerirOnda(onda, linhas);
               sendLine(`Banco atualizado: ${r.servidores} servidores, ${r.linhas} linhas`, "sucesso");
               appendLog(`Banco atualizado: ${r.servidores} servidores, ${r.linhas} linhas`, "sucesso");
@@ -1370,11 +1642,10 @@ const server = http.createServer(async (req, res) => {
             sendLine(`Aviso: falha na ingestão do banco — ${e.message}`, "warn");
           }).finally(() => {
             try { res.write("data: {\"tipo\":\"fim\"}\n\n"); res.end(); } catch {}
-            // Limpar cache para próxima leitura vir do banco
             cache.delete("processado_" + onda);
             _carregando.delete("processado_" + onda);
           });
-          return; // não fechar o SSE ainda — aguardar ingestão
+          return;
         }
 
         try { res.write("data: {\"tipo\":\"fim\"}\n\n"); res.end(); } catch {}
@@ -1406,7 +1677,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.3.9`);
+  console.log(` OCVS Migration Dashboard v0.4.0`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);

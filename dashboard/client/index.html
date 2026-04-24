@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OCVS Migration Dashboard v0.3.9</title>
+<title>OCVS Migration Dashboard v0.4.0</title>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -15,15 +15,15 @@
   /* ── Header ── */
   header {
     background: #1e293b; border-bottom: 1px solid #334155;
-    padding: 0 16px; height: 52px;
+    padding: 0 16px 0 0; height: 52px;
     display: flex; align-items: center; gap: 12px;
     position: sticky; top: 0; z-index: 50;
-    transition: padding-left 0.25s;
   }
   .btn-hamburger {
     background: none; border: none; cursor: pointer; color: #94a3b8;
-    padding: 6px; border-radius: 6px; display: flex; flex-direction: column;
+    border-radius: 0; display: flex; flex-direction: column;
     gap: 4px; flex-shrink: 0;
+    width: 48px; height: 52px; align-items: center; justify-content: center;
   }
   .btn-hamburger:hover { background: #334155; color: #f1f5f9; }
   .btn-hamburger span {
@@ -46,7 +46,7 @@
 
   /* ── Sidebar ── */
   #sidebar {
-    width: 0; overflow: hidden;
+    width: 48px; overflow: hidden;
     background: #1e293b; border-right: 1px solid #334155;
     display: flex; flex-direction: column;
     transition: width 0.25s ease;
@@ -55,21 +55,32 @@
   #sidebar.open { width: 240px; }
   #sidebar-inner { width: 240px; padding: 16px 0; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
 
+  /* Quando recolhido: esconder textos, centralizar ícones */
+  #sidebar:not(.open) #sidebar-inner { width: 48px; align-items: center; }
+  #sidebar:not(.open) .sb-section { display: none; }
+  #sidebar:not(.open) .sb-btn {
+    justify-content: center; padding: 10px 0; width: 48px; gap: 0;
+  }
+  #sidebar:not(.open) .sb-btn .sb-icon { width: 22px; height: 22px; }
+  #sidebar:not(.open) .sb-btn span:not(.sb-icon) { display: none; }
+  #sidebar:not(.open) .sb-divider { margin: 6px 10px; width: 28px; }
+
   .sb-section {
     padding: 8px 16px 4px;
     font-size: 0.68rem; font-weight: 600; color: #475569;
     text-transform: uppercase; letter-spacing: 0.08em;
+    white-space: nowrap;
   }
   .sb-btn {
     display: flex; align-items: center; gap: 10px;
-    padding: 8px 16px; font-size: 0.85rem; color: #94a3b8;
+    padding: 8px 12px; font-size: 0.85rem; color: #94a3b8;
     background: none; border: none; cursor: pointer; width: 100%; text-align: left;
     border-radius: 0; transition: background 0.15s, color 0.15s;
     white-space: nowrap;
   }
   .sb-btn:hover { background: #263348; color: #f1f5f9; }
   .sb-btn .sb-icon { width: 18px; height: 18px; flex-shrink: 0; }
-  .sb-divider { height: 1px; background: #334155; margin: 8px 16px; }
+  .sb-divider { height: 1px; background: #334155; margin: 8px 8px; }
 
   /* Seletor de tipo de conexão na sidebar */
   .sb-select-wrap { padding: 6px 16px; display: flex; flex-direction: column; gap: 4px; }
@@ -214,7 +225,7 @@
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">
     <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
   </svg>
-  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.3.9</small></h1>
+  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.4.0</small></h1>
   <span id="excel-path"></span>
   <div class="header-right">
     <div class="onda-select">
@@ -239,29 +250,29 @@
     <div id="sidebar-inner">
 
       <div class="sb-section">Coleta e Processamento</div>
-      <button class="sb-btn" onclick="abrirExecucao('coletar')">
-        <i data-lucide="download" class="sb-icon"></i> Coletar Onda
+      <button class="sb-btn" onclick="abrirTelaColeta()">
+        <i data-lucide="download" class="sb-icon"></i><span> Coletar Linux</span>
       </button>
-      <button class="sb-btn" onclick="abrirExecucao('processar')">
-        <i data-lucide="cog" class="sb-icon"></i> Processar Onda
+      <button class="sb-btn" onclick="abrirTelaServidores()">
+        <i data-lucide="cog" class="sb-icon"></i><span> Processar Servidores</span>
       </button>
 
       <div class="sb-divider"></div>
       <div class="sb-section">Banco de Dados</div>
       <button class="sb-btn" onclick="atualizarTodasOndas()">
-        <i data-lucide="refresh-cw" class="sb-icon"></i> Atualizar Ondas
+        <i data-lucide="refresh-cw" class="sb-icon"></i><span> Atualizar Ondas</span>
       </button>
       <button class="sb-btn" onclick="reingerirTudo()">
-        <i data-lucide="database" class="sb-icon"></i> Reingerir Banco
+        <i data-lucide="database" class="sb-icon"></i><span> Reingerir Banco</span>
       </button>
 
       <div class="sb-divider"></div>
       <div class="sb-section">Sistema</div>
       <button class="sb-btn" onclick="limparCache()">
-        <i data-lucide="rotate-ccw" class="sb-icon"></i> Recarregar Cache
+        <i data-lucide="rotate-ccw" class="sb-icon"></i><span> Recarregar Cache</span>
       </button>
       <button class="sb-btn" onclick="abrirLogs()">
-        <i data-lucide="file-text" class="sb-icon"></i> Logs de Execução
+        <i data-lucide="file-text" class="sb-icon"></i><span> Logs de Execução</span>
       </button>
 
     </div>
@@ -453,6 +464,451 @@ function selecionarOnda(numero) {
   sel.value = numero;
   ondaAtual = numero;
   renderDashboard();
+}
+
+// ── Tela de Coleta Linux ───────────────────────────────────────────────────────
+let _coletaSort = { col: "hostname", asc: true };
+
+async function abrirTelaColeta() {
+  ondaAtual = "";
+  document.getElementById("sel-onda").value = "";
+  const main = document.getElementById("main");
+  main.innerHTML = `<div class="loading">Carregando servidores Linux...</div>`;
+
+  try {
+    const servidores = await fetch(`${API}/api/servidores-linux`).then(r => r.json());
+    if (servidores.erro) { main.innerHTML = `<div class="alert">${servidores.erro}</div>`; return; }
+
+    window._coletaLista = servidores;
+
+    const totais = {
+      total:     servidores.length,
+      coletados: servidores.filter(s => s.rawExists).length,
+      pendentes: servidores.filter(s => !s.rawExists).length,
+    };
+
+    main.innerHTML = `
+      <div class="cards-row">
+        ${cardHTML("Servidores Linux", totais.total, "PoweredOn na planilha")}
+        ${cardHTML("Coletados", totais.coletados, "com arquivo raw")}
+        ${cardHTML("Pendentes", totais.pendentes, "sem coleta")}
+        <div class="card">
+          <h2>Credenciais SSH</h2>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+            <input id="coleta-usuario" type="text" placeholder="Usuário" value="migracao"
+                   style="background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:5px 8px;border-radius:6px;font-size:0.82rem;flex:1">
+            <div style="position:relative;flex:1">
+              <input id="coleta-senha" type="password" placeholder="Senha"
+                     style="background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:5px 8px;border-radius:6px;font-size:0.82rem;width:100%;padding-right:30px">
+              <button onmousedown="document.getElementById('coleta-senha').type='text'"
+                      onmouseup="document.getElementById('coleta-senha').type='password'"
+                      onmouseleave="document.getElementById('coleta-senha').type='password'"
+                      style="position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#64748b;font-size:0.9rem">&#128065;</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Servidores Linux
+          <span class="badge">${totais.total} servidores</span>
+          <button class="btn-refresh" style="margin-left:auto;font-size:0.78rem;padding:4px 12px;background:#16a34a"
+                  onclick="executarColetaSelecionados()">&#9660; Coletar selecionados</button>
+        </h2>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+          <input class="search" id="coleta-filter" placeholder="Filtrar por hostname, IP, onda..."
+                 oninput="filtrarTabelaColeta(this.value)" style="margin:0;flex:1;min-width:200px">
+          <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#334155"
+                  onclick="selecionarColetaPorStatus(false)">⚪ Pendentes</button>
+          <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#334155"
+                  onclick="selecionarColetaPorStatus(true)">✅ Coletados</button>
+          <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#334155"
+                  onclick="selecionarTodosColeta(true)">Selecionar todos</button>
+          <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#334155"
+                  onclick="selecionarTodosColeta(false)">Limpar seleção</button>
+        </div>
+        <div style="overflow-x:auto">
+        <table id="tbl-coleta">
+          <thead><tr>
+            <th style="width:30px"><input type="checkbox" id="chk-coleta-todos" onchange="selecionarTodosColeta(this.checked)" style="cursor:pointer"></th>
+            <th style="cursor:pointer" onclick="ordenarColeta('hostname')">Servidor ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarColeta('ip')">IP ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarColeta('onda')">Onda ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarColeta('so')">SO ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarColeta('rawLinhas')">Linhas raw ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarColeta('rawData')">Última coleta ⇅</th>
+            <th>Status</th>
+          </tr></thead>
+          <tbody id="tbody-coleta">
+            ${renderLinhasColeta(servidores)}
+          </tbody>
+        </table>
+        </div>
+      </div>
+    `;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  } catch (e) {
+    main.innerHTML = `<div class="alert">Erro: ${e.message}</div>`;
+  }
+}
+
+function renderLinhasColeta(lista) {
+  return lista.map(s => {
+    const statusTag = s.rawExists
+      ? '<span class="tag tag-ocvs">✅ Coletado</span>'
+      : '<span class="tag" style="background:#334155;color:#64748b">⚪ Pendente</span>';
+
+    const isProd = s.ambiente && /prod/i.test(s.ambiente) && !/n[aã]o/i.test(s.ambiente);
+    const ambIcon = s.ambiente
+      ? (isProd
+        ? '<i data-lucide="shield" style="width:13px;height:13px;color:#4ade80;vertical-align:middle;margin-right:3px" title="Produtivo"></i>'
+        : '<i data-lucide="code" style="width:13px;height:13px;color:#fb923c;vertical-align:middle;margin-right:3px" title="Não-Produtivo"></i>')
+      : '';
+
+    const rawInfo = s.rawExists ? s.rawLinhas.toLocaleString("pt-BR") : '—';
+    const dataInfo = s.rawData ? new Date(s.rawData).toLocaleString("pt-BR") : '—';
+
+    return `<tr data-hostname="${s.hostname}" data-coletado="${s.rawExists}">
+      <td><input type="checkbox" class="chk-coleta" value="${s.ip}" data-hostname="${s.hostname}" style="cursor:pointer"></td>
+      <td>${ambIcon}${s.hostname}</td>
+      <td>${s.ip || '—'}</td>
+      <td>${s.ondaLabel || '—'}</td>
+      <td style="font-size:0.78rem;color:#64748b">${s.so || '—'}</td>
+      <td style="font-size:0.78rem">${rawInfo}</td>
+      <td style="font-size:0.78rem">${dataInfo}</td>
+      <td>${statusTag}</td>
+    </tr>`;
+  }).join("");
+}
+
+function filtrarTabelaColeta(q) {
+  const ql = q.toLowerCase();
+  document.querySelectorAll("#tbody-coleta tr").forEach(tr => {
+    const texto = tr.textContent.toLowerCase();
+    tr.style.display = (!ql || texto.includes(ql)) ? "" : "none";
+  });
+}
+
+function selecionarColetaPorStatus(coletado) {
+  document.querySelectorAll("#tbody-coleta tr").forEach(tr => {
+    const chk = tr.querySelector(".chk-coleta");
+    if (chk) chk.checked = (tr.dataset.coletado === String(coletado));
+  });
+}
+
+function selecionarTodosColeta(marcar) {
+  document.querySelectorAll(".chk-coleta").forEach(c => c.checked = marcar);
+  const master = document.getElementById("chk-coleta-todos");
+  if (master) master.checked = marcar;
+}
+
+function ordenarColeta(col) {
+  if (_coletaSort.col === col) {
+    _coletaSort.asc = !_coletaSort.asc;
+  } else {
+    _coletaSort.col = col;
+    _coletaSort.asc = true;
+  }
+  const lista = window._coletaLista;
+  lista.sort((a, b) => {
+    let va = a[col] || "", vb = b[col] || "";
+    if (typeof va === "number" && typeof vb === "number") return _coletaSort.asc ? va - vb : vb - va;
+    va = String(va).toLowerCase(); vb = String(vb).toLowerCase();
+    return _coletaSort.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
+  document.getElementById("tbody-coleta").innerHTML = renderLinhasColeta(lista);
+  if (typeof lucide !== "undefined") lucide.createIcons();
+}
+
+async function executarColetaSelecionados() {
+  const selecionados = [...document.querySelectorAll(".chk-coleta:checked")];
+  if (selecionados.length === 0) { alert("Selecione ao menos um servidor."); return; }
+
+  const usuario = document.getElementById("coleta-usuario")?.value.trim() || "migracao";
+  const senha   = document.getElementById("coleta-senha")?.value || "";
+  if (!senha) { alert("Informe a senha SSH."); return; }
+
+  const ips = selecionados.map(c => c.value).join(",");
+
+  // Precisamos de uma onda para o script — usar "0" como placeholder
+  // O script Coletar-Linux.ps1 precisa de -NumeroOnda mas vamos usar -ServidoresSelecionados
+  const modal = document.getElementById("modal-root");
+  modal.innerHTML = `
+    <div class="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div><h3>Coletar Linux</h3><div class="sub" id="exec-sub">Coletando ${selecionados.length} servidor(es)...</div></div>
+          <button class="modal-close" onclick="fecharModal()">&#x2715;</button>
+        </div>
+        <div class="modal-body" style="padding:0">
+          <div class="terminal" id="terminal"></div>
+        </div>
+      </div>
+    </div>`;
+
+  window._execRunning = true;
+  const term = document.getElementById("terminal");
+  const addLinha = (linha, tipo) => {
+    if (!tipo || tipo === "log") {
+      const l = linha.trim();
+      if (/^\s*v /.test(l) || /sucesso|concluido|ok\b/i.test(l))  tipo = "sucesso";
+      else if (/^\s*x /.test(l) || /falha|erro|fail/i.test(l))    tipo = "erro";
+      else if (/^\s*! /.test(l) || /aviso|warn|aten/i.test(l))    tipo = "warn";
+      else if (/^={3,}|^-{3,}/.test(l))                           tipo = "sep";
+      else if (/iniciando|verificando|copiando|transferindo|extraindo/i.test(l)) tipo = "info";
+    }
+    const span = document.createElement("span");
+    span.className = tipo || "log";
+    span.textContent = linha;
+    term.appendChild(span);
+    term.appendChild(document.createElement("br"));
+    term.scrollTop = term.scrollHeight;
+  };
+
+  try {
+    const resp = await fetch(`${API}/api/executar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ script: "coletar", onda: "0", usuario, senha, servidoresSelecionados: ips }),
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop();
+      for (const ev of events) {
+        const dataLine = ev.split("\n").find(l => l.startsWith("data:"));
+        if (!dataLine) continue;
+        try {
+          const obj = JSON.parse(dataLine.slice(5));
+          if (obj.tipo === "fim") {
+            window._execRunning = false;
+            document.getElementById("exec-sub").textContent = "Concluído";
+          } else {
+            addLinha(obj.linha, obj.tipo);
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {
+    addLinha("Erro de conexão: " + e.message, "erro");
+    window._execRunning = false;
+  }
+}
+
+// ── Tela de Servidores ────────────────────────────────────────────────────────
+async function abrirTelaServidores() {
+  ondaAtual = "";
+  document.getElementById("sel-onda").value = "";
+  const main = document.getElementById("main");
+  main.innerHTML = `<div class="loading">Carregando servidores...</div>`;
+
+  try {
+    const servidores = await fetch(`${API}/api/servidores`).then(r => r.json());
+    if (servidores.erro) { main.innerHTML = `<div class="alert">${servidores.erro}</div>`; return; }
+
+    window._servidoresLista = servidores;
+
+    const totais = {
+      sem_coleta: servidores.filter(s => s.status === "sem_coleta").length,
+      raw_novo:   servidores.filter(s => s.status === "raw_novo").length,
+      atualizado: servidores.filter(s => s.status === "atualizado").length,
+    };
+
+    main.innerHTML = `
+      <div class="cards-row">
+        ${cardHTML("Total de servidores", servidores.length, "PoweredOn na planilha")}
+        ${cardHTML("Sem coleta", totais.sem_coleta, "sem arquivo raw")}
+        ${cardHTML("Raw novo", totais.raw_novo, "precisam processar")}
+        ${cardHTML("Atualizados", totais.atualizado, "processamento em dia")}
+      </div>
+
+      <div class="panel">
+        <h2>Servidores
+          <span class="badge">${servidores.length} servidores</span>
+          <button class="btn-refresh" style="margin-left:auto;font-size:0.78rem;padding:4px 12px;background:#7c3aed"
+                  onclick="processarSelecionados()">&#9654; Processar selecionados</button>
+        </h2>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+          <input class="search" id="srv-filter" placeholder="Filtrar por hostname, IP, onda..."
+                 oninput="filtrarTabelaServidores(this.value)" style="margin:0;flex:1;min-width:200px">
+          <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#334155"
+                  onclick="selecionarPorStatus('sem_coleta')">⚪ Sem coleta</button>
+          <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#334155"
+                  onclick="selecionarPorStatus('raw_novo')">🔄 Raw novo</button>
+          <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#334155"
+                  onclick="selecionarPorStatus('atualizado')">✅ Atualizados</button>
+          <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#334155"
+                  onclick="selecionarTodosServidores(false)">Limpar seleção</button>
+        </div>
+        <div style="overflow-x:auto">
+        <table id="tbl-servidores">
+          <thead><tr>
+            <th style="width:30px"><input type="checkbox" id="chk-srv-todos" onchange="selecionarTodosServidores(this.checked)" style="cursor:pointer"></th>
+            <th>Servidor</th>
+            <th>IP</th>
+            <th>Onda</th>
+            <th>SO</th>
+            <th>Raw</th>
+            <th>Processado</th>
+            <th>Status</th>
+          </tr></thead>
+          <tbody id="tbody-servidores">
+            ${renderLinhasServidores(servidores)}
+          </tbody>
+        </table>
+        </div>
+      </div>
+    `;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  } catch (e) {
+    main.innerHTML = `<div class="alert">Erro: ${e.message}</div>`;
+  }
+}
+
+function renderLinhasServidores(lista) {
+  return lista.map((s, i) => {
+    const statusTag = s.status === "atualizado"
+      ? '<span class="tag tag-ocvs">✅ Atualizado</span>'
+      : s.status === "raw_novo"
+        ? '<span class="tag" style="background:#422006;color:#fcd34d">🔄 Raw novo</span>'
+        : '<span class="tag" style="background:#334155;color:#64748b">⚪ Sem coleta</span>';
+
+    const isProd = s.ambiente && /prod/i.test(s.ambiente) && !/n[aã]o/i.test(s.ambiente);
+    const ambIcon = s.ambiente
+      ? (isProd
+        ? '<i data-lucide="shield" style="width:13px;height:13px;color:#4ade80;vertical-align:middle;margin-right:3px" title="Produtivo"></i>'
+        : '<i data-lucide="code" style="width:13px;height:13px;color:#fb923c;vertical-align:middle;margin-right:3px" title="Não-Produtivo"></i>')
+      : '';
+
+    const rawInfo = s.rawExists ? `${(s.linhasRaw || 0).toLocaleString("pt-BR")} linhas` : '—';
+    const procInfo = s.processadoExists ? `${(s.linhasProcessadas || 0).toLocaleString("pt-BR")} linhas` : '—';
+
+    return `<tr data-hostname="${s.hostname}" data-status="${s.status}">
+      <td><input type="checkbox" class="chk-srv" value="${s.hostname}" style="cursor:pointer"></td>
+      <td>${ambIcon}${s.hostname}</td>
+      <td>${s.ip || '—'}</td>
+      <td>${s.ondaLabel || '—'}</td>
+      <td style="font-size:0.78rem;color:#64748b">${s.so || '—'}</td>
+      <td style="font-size:0.78rem">${rawInfo}</td>
+      <td style="font-size:0.78rem">${procInfo}</td>
+      <td>${statusTag}</td>
+    </tr>`;
+  }).join("");
+}
+
+function filtrarTabelaServidores(q) {
+  const ql = q.toLowerCase();
+  document.querySelectorAll("#tbody-servidores tr").forEach(tr => {
+    const texto = tr.textContent.toLowerCase();
+    tr.style.display = (!ql || texto.includes(ql)) ? "" : "none";
+  });
+}
+
+function selecionarPorStatus(status) {
+  document.querySelectorAll("#tbody-servidores tr").forEach(tr => {
+    const chk = tr.querySelector(".chk-srv");
+    if (chk) chk.checked = tr.dataset.status === status;
+  });
+}
+
+function selecionarTodosServidores(marcar) {
+  document.querySelectorAll(".chk-srv").forEach(c => c.checked = marcar);
+  const master = document.getElementById("chk-srv-todos");
+  if (master) master.checked = marcar;
+}
+
+async function processarSelecionados() {
+  const selecionados = [...document.querySelectorAll(".chk-srv:checked")].map(c => c.value);
+  if (selecionados.length === 0) { alert("Selecione ao menos um servidor."); return; }
+
+  const ok = await confirmarAcao(
+    "Processar Servidores",
+    `<p>Serão processados <strong>${selecionados.length} servidor(es)</strong>.</p>
+     <p style="margin-top:8px;color:#94a3b8;font-size:0.82rem">Cada servidor será filtrado (privado/público), enriquecido e aglutinado individualmente. Servidores já atualizados serão pulados automaticamente.</p>`,
+    "Processar"
+  );
+  if (!ok) return;
+
+  // Abrir modal de execução com os servidores selecionados
+  const modal = document.getElementById("modal-root");
+  modal.innerHTML = `
+    <div class="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div><h3>Processando ${selecionados.length} servidor(es)</h3><div class="sub" id="exec-sub">Aguarde...</div></div>
+          <button class="modal-close" onclick="fecharModal()">&#x2715;</button>
+        </div>
+        <div class="modal-body" style="padding:0">
+          <div class="terminal" id="terminal"></div>
+        </div>
+      </div>
+    </div>`;
+
+  const term = document.getElementById("terminal");
+  const addLinha = (linha, tipo) => {
+    if (!tipo || tipo === "log") {
+      const l = linha.trim();
+      if (/^\s*v /.test(l) || /sucesso|concluido|ok\b/i.test(l))  tipo = "sucesso";
+      else if (/^\s*x /.test(l) || /falha|erro|fail/i.test(l))    tipo = "erro";
+      else if (/^\s*! /.test(l) || /aviso|warn|aten/i.test(l))    tipo = "warn";
+      else if (/^={3,}|^-{3,}/.test(l))                           tipo = "sep";
+      else if (/processando|separando|enriquecendo|aglutinando|mesclando/i.test(l)) tipo = "info";
+    }
+    const span = document.createElement("span");
+    span.className = tipo || "log";
+    span.textContent = linha;
+    term.appendChild(span);
+    term.appendChild(document.createElement("br"));
+    term.scrollTop = term.scrollHeight;
+  };
+
+  // Processar cada servidor via API
+  for (let i = 0; i < selecionados.length; i++) {
+    const h = selecionados[i];
+    document.getElementById("exec-sub").textContent = `[${i+1}/${selecionados.length}] ${h}`;
+    addLinha(`[${i+1}/${selecionados.length}] Processando ${h}...`, "info");
+
+    try {
+      const resp = await fetch(`${API}/api/executar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script: "processar-servidor", hostname: h }),
+      });
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop();
+        for (const ev of events) {
+          const dataLine = ev.split("\n").find(l => l.startsWith("data:"));
+          if (!dataLine) continue;
+          try {
+            const obj = JSON.parse(dataLine.slice(5));
+            if (obj.tipo !== "fim") addLinha(obj.linha, obj.tipo);
+          } catch {}
+        }
+      }
+    } catch (e) {
+      addLinha(`Erro: ${e.message}`, "erro");
+    }
+  }
+
+  addLinha("", "log");
+  addLinha(`Concluído — ${selecionados.length} servidor(es) processados.`, "sucesso");
+  document.getElementById("exec-sub").textContent = "Concluído";
 }
 
 async function limparCache() {
@@ -1367,8 +1823,15 @@ function filtrarDrill(q) {
 function fecharModal() {
   window._execRunning = false;
   document.getElementById("modal-root").innerHTML = "";
-  // Recarregar home para refletir mudanças de status
-  if (!ondaAtual) renderHome();
+  if (!ondaAtual) {
+    if (document.getElementById("tbl-coleta")) {
+      abrirTelaColeta();
+    } else if (document.getElementById("tbl-servidores")) {
+      abrirTelaServidores();
+    } else {
+      renderHome();
+    }
+  }
 }
 
 // ── Execução de scripts ───────────────────────────────────────────────────────
@@ -1404,8 +1867,18 @@ function abrirExecucao(script, ondaPreset) {
             <button class="btn-exec btn-run" id="btn-carregar" onclick="carregarServidores()"
                     style="background:#0369a1">&#128269; Carregar Servidores</button>
             ` : `
-            <button class="btn-exec btn-run" id="btn-run" onclick="executarScript('${script}')"
-                    style="background:${cor}">&#9654; Executar</button>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <button class="btn-exec btn-run" id="btn-run" onclick="executarScript('${script}')"
+                      style="background:${cor}">&#9654; Executar</button>
+              <label style="display:flex;align-items:center;gap:5px;font-size:0.8rem;color:#94a3b8;cursor:pointer">
+                <input type="checkbox" id="chk-forcar" style="width:13px;height:13px;cursor:pointer;accent-color:#ef4444">
+                Forçar reprocessamento
+              </label>
+              <label style="display:flex;align-items:center;gap:5px;font-size:0.8rem;color:#94a3b8;cursor:pointer">
+                <input type="checkbox" id="chk-publicos" style="width:13px;height:13px;cursor:pointer;accent-color:#3b82f6">
+                Incluir IPs públicos
+              </label>
+            </div>
             `}
           </div>
           <div id="lista-servidores" style="display:none;margin-top:12px"></div>
@@ -1525,10 +1998,13 @@ async function executarScript(script) {
   };
 
   try {
+    const forcar = document.getElementById("chk-forcar")?.checked || false;
+    const incluirPublicos = document.getElementById("chk-publicos")?.checked || false;
+
     const resp = await fetch(`${API}/api/executar`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ script, onda, usuario, senha, servidoresSelecionados }),
+      body: JSON.stringify({ script, onda, usuario, senha, servidoresSelecionados, forcar, incluirPublicos }),
     });
 
     const reader = resp.body.getReader();
@@ -1649,7 +2125,8 @@ async function atualizarTodasOndas() {
       const qtdOndas = r.resultados.filter(x => x.ok).length;
       const total    = r.resultados.reduce((s, x) => s + (x.membros || 0), 0);
       const err      = r.resultados.filter(x => !x.ok).length;
-      alert(`Ondas atualizadas: ${qtdOndas} onda(s), ${total} servidores no total${err ? `\n${err} com erro` : ""}.`);
+      const errosDetalhe2 = r.resultados.filter(x => !x.ok).map(x => `Onda ${x.onda}: ${x.erro}`).join("\n");
+      alert(`Ondas atualizadas: ${qtdOndas} onda(s), ${total} servidores no total${err ? `\n${err} com erro:\n${errosDetalhe2}` : ""}.`);
       if (ondaAtual) renderDashboard();
     } else {
       alert(`Erro: ${r.erro}`);
@@ -1681,7 +2158,8 @@ async function reingerirTudo() {
     if (r.ok) {
       const qtdOk  = r.resultados.filter(x => x.ok).length;
       const qtdErr = r.resultados.filter(x => !x.ok).length;
-      alert(`Reingestão concluída: ${qtdOk} onda(s) OK${qtdErr ? `, ${qtdErr} com erro` : ""}.`);
+      const errosDetalhe = r.resultados.filter(x => !x.ok).map(x => `Onda ${x.onda}: ${x.erro}`).join("\n");
+      alert(`Reingestão concluída: ${qtdOk} onda(s) OK${qtdErr ? `\n${qtdErr} com erro:\n${errosDetalhe}` : ""}.`);
       if (ondaAtual) renderDashboard();
     } else {
       alert(`Erro: ${r.erro}`);

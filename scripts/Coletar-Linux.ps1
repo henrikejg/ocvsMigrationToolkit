@@ -334,30 +334,72 @@ Write-Host "Lendo servidores com Onda $NumeroOnda do arquivo Excel..."
 Write-Sep
 
 $scriptDir  = $PSScriptRoot
-$servidores = @(& "$scriptDir\Extrair-IPs.ps1" -NumeroOnda $NumeroOnda -ArquivoExcel $ArquivoExcel)
 
-if (-not $servidores -or $servidores.Count -eq 0) {
-    Write-Error "Nenhum servidor com Onda $NumeroOnda encontrado!"
-    Remove-Item $askpassDir -Recurse -Force -ErrorAction SilentlyContinue
-    exit 1
-}
+# Se onda é "0" e temos servidores selecionados, usar IPs diretamente (sem filtrar por onda)
+if ($NumeroOnda -eq "0" -and $ServidoresSelecionados) {
+    $servidores = @($ServidoresSelecionados -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    Write-Host "Coleta direta de $($servidores.Count) servidor(es) selecionados"
+    # Tentar montar mapa IP -> Hostname a partir do Excel (todas as ondas)
+    $mapaIpHostname = @{}
+    try {
+        # Copiar Excel para temp (robocopy lê arquivos com lock)
+        $tempSubDir = Join-Path $env:TEMP ("excel_" + [System.IO.Path]::GetRandomFileName().Replace('.',''))
+        New-Item -ItemType Directory -Path $tempSubDir -Force | Out-Null
+        $srcDir  = Split-Path $ArquivoExcel -Parent
+        $srcFile = Split-Path $ArquivoExcel -Leaf
+        $null = robocopy $srcDir $tempSubDir $srcFile /NFL /NDL /NJH /NJS 2>&1
+        $tempExcel = Join-Path $tempSubDir $srcFile
 
-# Carregar mapa IP -> Hostname para normalizar nomes de arquivos
-$mapaIpHostname = @{}
-$hostnames = @(& "$scriptDir\Extrair-Hostnames.ps1" -NumeroOnda $NumeroOnda -ArquivoExcel $ArquivoExcel 2>$null)
-$ipsParaHostname = @(& "$scriptDir\Extrair-IPs.ps1" -NumeroOnda $NumeroOnda -ArquivoExcel $ArquivoExcel 2>$null)
-for ($i = 0; $i -lt [Math]::Min($ipsParaHostname.Count, $hostnames.Count); $i++) {
-    $mapaIpHostname[$ipsParaHostname[$i]] = $hostnames[$i]
-}
-
-# Filtrar apenas os IPs selecionados, se informado
-if ($ServidoresSelecionados) {
-    $filtro = @($ServidoresSelecionados -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-    $totalOnda = $servidores.Count
-    $servidores = @($servidores | Where-Object { $filtro -contains $_ })
-    Write-Host "Servidores selecionados para coleta: $($servidores.Count) de $totalOnda"
+        if (Test-Path $tempExcel) {
+            $excelData = Import-Excel -Path $tempExcel -WorksheetName "vInfo" -ErrorAction Stop
+            foreach ($row in $excelData) {
+                $props = $row.PSObject.Properties
+                $vm = ""
+                $ip = ""
+                foreach ($p in $props) {
+                    $name = $p.Name.Trim()
+                    if ($name -eq "VM") { $vm = [string]$p.Value }
+                    elseif ($name -match "IP|Address") { $ip = [string]$p.Value }
+                }
+                if ($vm -and $ip -and $vm -ne "None" -and $ip -ne "None") {
+                    $mapaIpHostname[$ip.Trim()] = $vm.Trim()
+                }
+            }
+            Write-Host "Mapa IP->Hostname carregado: $($mapaIpHostname.Count) entradas"
+        } else {
+            Write-Host "  ! Aviso: falha ao copiar Excel para temp" -ForegroundColor Yellow
+        }
+        Remove-Item $tempSubDir -Recurse -Force -ErrorAction SilentlyContinue
+    } catch {
+        Write-Host "  ! Aviso: nao foi possivel carregar mapa IP->Hostname: $_" -ForegroundColor Yellow
+        Remove-Item $tempSubDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
 } else {
-    Write-Host "Servidores encontrados: $($servidores.Count)"
+    $servidores = @(& "$scriptDir\Extrair-IPs.ps1" -NumeroOnda $NumeroOnda -ArquivoExcel $ArquivoExcel)
+
+    if (-not $servidores -or $servidores.Count -eq 0) {
+        Write-Error "Nenhum servidor com Onda $NumeroOnda encontrado!"
+        Remove-Item $askpassDir -Recurse -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
+
+    # Carregar mapa IP -> Hostname para normalizar nomes de arquivos
+    $mapaIpHostname = @{}
+    $hostnames = @(& "$scriptDir\Extrair-Hostnames.ps1" -NumeroOnda $NumeroOnda -ArquivoExcel $ArquivoExcel 2>$null)
+    $ipsParaHostname = @(& "$scriptDir\Extrair-IPs.ps1" -NumeroOnda $NumeroOnda -ArquivoExcel $ArquivoExcel 2>$null)
+    for ($i = 0; $i -lt [Math]::Min($ipsParaHostname.Count, $hostnames.Count); $i++) {
+        $mapaIpHostname[$ipsParaHostname[$i]] = $hostnames[$i]
+    }
+
+    # Filtrar apenas os IPs selecionados, se informado
+    if ($ServidoresSelecionados) {
+        $filtro = @($ServidoresSelecionados -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        $totalOnda = $servidores.Count
+        $servidores = @($servidores | Where-Object { $filtro -contains $_ })
+        Write-Host "Servidores selecionados para coleta: $($servidores.Count) de $totalOnda"
+    } else {
+        Write-Host "Servidores encontrados: $($servidores.Count)"
+    }
 }
 
 foreach ($s in $servidores) { Write-Host "  - $s" }
