@@ -85,8 +85,14 @@ function Format-Bytes {
 }
 
 # ── Solicitar credenciais via prompt seguro ───────────────────────────────────
+$modoDirecto = ($NumeroOnda -eq "0" -and $ServidoresSelecionados)
+
 Write-Host ""
-Write-Host "Informe as credenciais SSH para os servidores da Onda ${NumeroOnda}:" -ForegroundColor Cyan
+if ($modoDirecto) {
+    Write-Host "Informe as credenciais SSH para os servidores selecionados:" -ForegroundColor Cyan
+} else {
+    Write-Host "Informe as credenciais SSH para os servidores da Onda ${NumeroOnda}:" -ForegroundColor Cyan
+}
 
 # Modo headless: senha via parametro ou variavel de ambiente (chamado pelo dashboard)
 if (-not $Senha) { $Senha = $env:OCVS_SENHA }
@@ -95,7 +101,7 @@ if ($Senha) {
     Write-Host "Usando credenciais fornecidas para usuario '$Usuario'" -ForegroundColor Green
     $SenhaPlana = $Senha
 } else {
-    $credencial = Get-Credential -UserName $Usuario -Message "Credenciais SSH - Onda ${NumeroOnda}"
+    $credencial = Get-Credential -UserName $Usuario -Message $(if ($modoDirecto) { "Credenciais SSH" } else { "Credenciais SSH - Onda ${NumeroOnda}" })
     if (-not $credencial) {
         Write-Error "Credenciais nao informadas. Abortando."
         exit 1
@@ -330,7 +336,11 @@ function Copiar-ComCompressao {
 
 # ── Inicio ────────────────────────────────────────────────────────────────────
 Write-Sep
-Write-Host "Lendo servidores com Onda $NumeroOnda do arquivo Excel..."
+if ($modoDirecto) {
+    Write-Host "Coleta direta de servidores selecionados..."
+} else {
+    Write-Host "Lendo servidores com Onda $NumeroOnda do arquivo Excel..."
+}
 Write-Sep
 
 $scriptDir  = $PSScriptRoot

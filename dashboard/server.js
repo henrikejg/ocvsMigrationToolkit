@@ -1266,6 +1266,93 @@ const server = http.createServer(async (req, res) => {
     return respJson(res, db.statusDB());
   }
 
+  // ── Ingerir servidor individual no banco (POST) ────────────────────────────────
+  if (urlPath === "/api/db/ingerir-servidor" && req.method === "POST") {
+    let body = "";
+    req.on("data", d => body += d);
+    req.on("end", async () => {
+      try {
+        const { hostname } = JSON.parse(body);
+        if (!hostname) return respJson(res, { erro: "hostname obrigatório" }, 400);
+
+        await db.initDB();
+
+        const hostnameUpper = hostname.toUpperCase();
+        const arqProcessado = path.join(DADOS_DIR, "processados_servidor", `netstat_${hostnameUpper}.txt`);
+        if (!fs.existsSync(arqProcessado)) return respJson(res, { erro: "Arquivo processado não encontrado para " + hostname }, 404);
+
+        const excelPath  = encontrarExcel();
+        const aplicacoes = excelPath ? lerAbaAplicacoes(excelPath) : {};
+        const mapaOndas  = excelPath ? lerMapaOndas(excelPath)     : {};
+        const mapaOndaSemDominio = {};
+        for (const k of Object.keys(mapaOndas)) {
+          const semDom = k.split(".")[0];
+          if (!mapaOndaSemDominio[semDom]) mapaOndaSemDominio[semDom] = mapaOndas[k];
+        }
+
+        const buf = fs.readFileSync(arqProcessado, "utf8");
+        const linhas = [];
+        for (const linha of buf.split("\n")) {
+          const l = linha.trimEnd();
+          if (!l) continue;
+          const c = l.split(";");
+          while (c.length < 17) c.push("");
+          const processo = (c[7] || "").trim();
+          const ipRemoto = (c[11] || "").trim();
+          const hn       = (c[1] || "").trim();
+          const contadorRaw = (c[16] || "1").replace(/\D/g, "") || "1";
+          const procKey = processo.toLowerCase();
+          const aplicacao = aplicacoes[procKey] || "Falta Identificar";
+          const hnUpper = hn.toUpperCase();
+          const hnSemDom = hnUpper.split(".")[0];
+          const ondaOrigem = mapaOndas[hnUpper] || mapaOndas[hnSemDom] || mapaOndaSemDominio[hnSemDom] || "";
+          const ondaDestino = mapaOndas[ipRemoto] || "";
+
+          linhas.push({
+            data: c[0], hostname: hn, proto: c[2], local: c[3], remoto: c[4],
+            estado: c[5], pid: c[6], processo, aplicacao,
+            ip_local: c[9], porta_local: c[10], ip_remoto: ipRemoto,
+            porta_remota: c[12], direcao: c[13], ocvs: c[14],
+            portas_fmt: c[15], contador: parseInt(contadorRaw, 10) || 1,
+            onda_origem: ondaOrigem, onda_destino: ondaDestino,
+          });
+        }
+
+        // Deletar conexões antigas deste servidor e inserir novas
+        const dbInst = await db.initDB();
+        dbInst.run("DELETE FROM conexoes WHERE hostname = ?", [hostnameUpper]);
+        if (excelPath) db.sincronizarAplicacoes(aplicacoes);
+
+        // Usar ingerirOnda com onda fictícia só para inserir as conexões
+        // Melhor: inserir diretamente
+        const agora = new Date().toISOString();
+        dbInst.run(`INSERT INTO servidores (hostname, ip, ambiente, ingerido_em) VALUES (?, ?, '', ?)
+          ON CONFLICT(hostname) DO UPDATE SET ip = CASE WHEN excluded.ip != '' THEN excluded.ip ELSE ip END, ingerido_em = excluded.ingerido_em`,
+          [hostnameUpper, linhas[0]?.ip_local || "", agora]);
+
+        const stmt = dbInst.prepare(`INSERT INTO conexoes
+          (hostname, ip_local, porta_local, ip_remoto, porta_remota, direcao, ocvs, estado, protocolo, processo, aplicacao, portas_fmt, contador, data_coleta)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+        for (const r of linhas) {
+          stmt.run([hostnameUpper, r.ip_local, r.porta_local, r.ip_remoto, r.porta_remota,
+            r.direcao, r.ocvs, r.estado, r.proto, r.processo, r.aplicacao,
+            r.portas_fmt, r.contador, r.data]);
+        }
+        stmt.free();
+        db.salvarDB();
+
+        // Limpar cache
+        cache.clear();
+        _carregando.clear();
+
+        return respJson(res, { ok: true, hostname: hostnameUpper, linhas: linhas.length });
+      } catch (e) {
+        return respJson(res, { erro: e.message }, 500);
+      }
+    });
+    return;
+  }
+
   // ── Ingerir onda no banco (POST) ──────────────────────────────────────────────
   // Chamado automaticamente após processar uma onda
   if (urlPath === "/api/db/ingerir" && req.method === "POST") {
@@ -1509,7 +1596,9 @@ const server = http.createServer(async (req, res) => {
 
       const msgInicio = script === "processar-servidor"
         ? "Iniciando " + scriptFile + " para " + hostname + "..."
-        : "Iniciando " + scriptFile + " para Onda " + onda + "...";
+        : (script === "coletar" && onda === "0")
+          ? "Iniciando coleta de servidores selecionados..."
+          : "Iniciando " + scriptFile + " para Onda " + onda + "...";
       sendLine(msgInicio, "info");
 
       // Estrutura do log
@@ -1519,7 +1608,8 @@ const server = http.createServer(async (req, res) => {
       const logData = {
         id:      logId,
         script:  scriptFile,
-        onda,
+        onda:    onda || "",
+        hostname: hostname || "",
         usuario: usuario || "",
         inicio:  new Date().toISOString(),
         fim:     null,
@@ -1677,7 +1767,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.4.0`);
+  console.log(` OCVS Migration Dashboard v0.4.1`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);

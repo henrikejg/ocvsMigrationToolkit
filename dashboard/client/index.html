@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OCVS Migration Dashboard v0.4.0</title>
+<title>OCVS Migration Dashboard v0.4.1</title>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -225,7 +225,7 @@
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">
     <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
   </svg>
-  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.4.0</small></h1>
+  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.4.1</small></h1>
   <span id="excel-path"></span>
   <div class="header-right">
     <div class="onda-select">
@@ -249,6 +249,11 @@
   <nav id="sidebar">
     <div id="sidebar-inner">
 
+      <button class="sb-btn" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">
+        <i data-lucide="layers" class="sb-icon"></i><span> Ondas de Migração</span>
+      </button>
+
+      <div class="sb-divider"></div>
       <div class="sb-section">Coleta e Processamento</div>
       <button class="sb-btn" onclick="abrirTelaColeta()">
         <i data-lucide="download" class="sb-icon"></i><span> Coletar Linux</span>
@@ -361,7 +366,7 @@ async function renderHome() {
         </div>`;
 
     const ultimoLogHTML = dados.ultimoLog
-      ? `${dados.ultimoLog.script} — Onda ${dados.ultimoLog.onda} — ${new Date(dados.ultimoLog.inicio).toLocaleString("pt-BR")} — ${dados.ultimoLog.exitCode === 0 ? '<span style="color:#4ade80">OK</span>' : '<span style="color:#f87171">Erro</span>'}`
+      ? `${nomeScript(dados.ultimoLog.script)}${dados.ultimoLog.onda && dados.ultimoLog.onda !== "0" ? ' — Onda ' + dados.ultimoLog.onda : ''}${dados.ultimoLog.hostname ? ' — ' + dados.ultimoLog.hostname : ''} — ${new Date(dados.ultimoLog.inicio).toLocaleString("pt-BR")} — ${dados.ultimoLog.exitCode === 0 ? '<span style="color:#4ade80">OK</span>' : '<span style="color:#f87171">Erro</span>'}`
       : '<span style="color:#475569">Nenhuma execução registrada</span>';
 
     const rowsHTML = dados.ondas.map(o => {
@@ -908,6 +913,27 @@ async function processarSelecionados() {
 
   addLinha("", "log");
   addLinha(`Concluído — ${selecionados.length} servidor(es) processados.`, "sucesso");
+
+  // Ingerir servidores processados no SQLite
+  addLinha("Ingerindo dados no banco...", "info");
+  try {
+    for (const h of selecionados) {
+      const r = await fetch(`${API}/api/db/ingerir-servidor`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hostname: h }),
+      }).then(r => r.json());
+      if (r.ok) {
+        addLinha(`  ${h}: ${r.linhas} linhas ingeridas`, "sucesso");
+      } else {
+        addLinha(`  ${h}: ${r.erro || "erro"}`, "warn");
+      }
+    }
+    addLinha("Banco atualizado.", "sucesso");
+  } catch (e) {
+    addLinha(`Aviso: falha na ingestão — ${e.message}`, "warn");
+  }
+
   document.getElementById("exec-sub").textContent = "Concluído";
 }
 
@@ -1444,6 +1470,14 @@ ${togScript}
 }
 
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+const _scriptLabels = {
+  "Coletar-Linux.ps1": "Coletar Linux",
+  "Processar-Servidor.ps1": "Processar Servidor",
+  "Processar-Onda-V2.ps1": "Processar Onda",
+  "Processar-Onda.ps1": "Processar Onda (legado)",
+};
+function nomeScript(s) { return _scriptLabels[s] || s; }
 
 function ambienteIcon(hostname) {
   const amb = _mapaAmbiente[(hostname||'').toUpperCase()] || '';
@@ -2214,7 +2248,7 @@ async function abrirLogs() {
                  onmouseover="this.style.background='#263348'" onmouseout="this.style.background=''">
       <span style="color:${cor};font-size:1rem;width:16px">${icone}</span>
       <div style="flex:1">
-        <div style="color:#f1f5f9;font-weight:500">${l.script} &mdash; Onda ${l.onda}</div>
+        <div style="color:#f1f5f9;font-weight:500">${nomeScript(l.script)}${l.onda && l.onda !== "0" ? ' &mdash; Onda ' + l.onda : ''}${l.hostname ? ' &mdash; ' + l.hostname : ''}</div>
         <div style="color:#64748b;font-size:0.75rem;margin-top:2px">${dt} &middot; ${dur}</div>
       </div>
       <span style="color:#475569;font-size:0.75rem">&#9654;</span>
@@ -2249,7 +2283,7 @@ async function abrirLogDetalhe(id) {
       <div class="modal">
         <div class="modal-header">
           <div>
-            <h3>${log.script} &mdash; Onda ${log.onda}</h3>
+            <h3>${nomeScript(log.script)}${log.onda && log.onda !== "0" ? ' &mdash; Onda ' + log.onda : ''}${log.hostname ? ' &mdash; ' + log.hostname : ''}</h3>
             <div class="sub">${dt} &middot; ${dur} &middot; exit ${log.exitCode ?? "&mdash;"}</div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
