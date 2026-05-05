@@ -844,23 +844,29 @@ const server = http.createServer(async (req, res) => {
 
       // Portas conhecidas com nomes amigáveis
       const portasConhecidas = {
-        "22": "SSH", "25": "SMTP", "53": "DNS", "80": "HTTP", "110": "POP3",
+        "21": "FTP", "22": "SSH", "25": "SMTP", "53": "DNS", "80": "HTTP", "110": "POP3",
         "135": "RPC", "139": "NetBIOS", "143": "IMAP", "389": "LDAP",
         "443": "HTTPS", "445": "SMB", "587": "SMTP (TLS)",
         "1433": "SQL Server", "1521": "Oracle DB", "3306": "MySQL",
         "3389": "RDP", "5432": "PostgreSQL", "5671": "AMQP (TLS)",
-        "6379": "Redis", "8080": "HTTP Proxy", "8443": "HTTPS Alt",
+        "6379": "Redis",
+        "8080": "HTTP Proxy", "8081": "HTTP Alt", "8082": "HTTP Alt",
+        "8083": "HTTP Alt", "8084": "HTTP Alt", "8085": "HTTP Alt",
+        "8086": "HTTP Alt", "8087": "HTTP Alt", "8088": "HTTP Alt",
+        "8443": "HTTPS Alt",
         "9200": "Elasticsearch", "9997": "Splunk", "10050": "Zabbix Agent",
         "10051": "Zabbix Server", "27017": "MongoDB",
       };
 
-      // Buscar portas com mais conexões ESTABLISHED no banco
+      // Buscar portas com conexões no banco
       const rows = db.queryAll(`
         SELECT
           c.porta_remota as porta,
           COUNT(DISTINCT c.ip_remoto) as servidores,
           COUNT(DISTINCT c.hostname) as clientes,
-          SUM(c.contador) as total_conexoes
+          SUM(c.contador) as total_conexoes,
+          SUM(CASE WHEN c.estado = 'ESTABLISHED' THEN c.contador ELSE 0 END) as established,
+          SUM(CASE WHEN c.estado = 'SYN_SENT' THEN c.contador ELSE 0 END) as syn_sent
         FROM conexoes c
         WHERE (c.estado = 'ESTABLISHED' OR c.estado = 'SYN_SENT')
           AND c.porta_remota != ''
@@ -869,13 +875,17 @@ const server = http.createServer(async (req, res) => {
         ORDER BY CAST(c.porta_remota AS INTEGER) ASC
       `);
 
-      const lista = rows.map(r => ({
-        porta: r.porta,
-        nome: portasConhecidas[r.porta] || `Porta ${r.porta}`,
-        servidores: r.servidores,
-        clientes: r.clientes,
-        total_conexoes: r.total_conexoes,
-      }));
+      const lista = rows
+        .map(r => ({
+          porta: r.porta,
+          nome: portasConhecidas[r.porta] || `Porta ${r.porta}`,
+          conhecida: !!portasConhecidas[r.porta],
+          servidores: r.servidores,
+          clientes: r.clientes,
+          total_conexoes: r.total_conexoes,
+          established: r.established,
+          syn_sent: r.syn_sent,
+        }));
 
       return respJson(res, lista);
     } catch (e) {
@@ -1968,7 +1978,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.5.0`);
+  console.log(` OCVS Migration Dashboard v0.5.1`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);

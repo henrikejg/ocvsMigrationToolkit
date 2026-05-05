@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OCVS Migration Dashboard v0.5.0</title>
+<title>OCVS Migration Dashboard v0.5.1</title>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -225,7 +225,7 @@
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">
     <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
   </svg>
-  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.5.0</small></h1>
+  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.5.1</small></h1>
   <span id="excel-path"></span>
   <div class="header-right">
     <div class="onda-select">
@@ -744,7 +744,7 @@ async function abrirTelaInventario() {
           <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#94a3b8;cursor:pointer;white-space:nowrap">
             <input type="checkbox" id="chk-ocultar-genericas" checked onchange="atualizarListaServicos()"
                    style="width:14px;height:14px;cursor:pointer;accent-color:#3b82f6">
-            Ocultar portas genéricas
+            Ocultar irrelevantes
           </label>
         </div>
         <div id="inventario-resultado"></div>
@@ -763,7 +763,12 @@ function atualizarListaServicos() {
   const valorAtual = sel.value;
 
   const filtrada = ocultarGenericas
-    ? lista.filter(s => !s.nome.startsWith("Porta "))
+    ? lista.filter(s => {
+        // Quando ocultar: esconder portas genéricas E portas com só SYN_SENT ou <5 ESTABLISHED
+        if (s.nome.startsWith("Porta ")) return false;
+        if (!s.established || s.established < 5) return false;
+        return true;
+      })
     : lista;
 
   sel.innerHTML = '<option value="">-- selecione um serviço --</option>' +
