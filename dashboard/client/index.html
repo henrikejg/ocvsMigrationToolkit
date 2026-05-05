@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OCVS Migration Dashboard v0.4.3</title>
+<title>OCVS Migration Dashboard v0.5.0</title>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -225,7 +225,7 @@
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">
     <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
   </svg>
-  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.4.3</small></h1>
+  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.5.0</small></h1>
   <span id="excel-path"></span>
   <div class="header-right">
     <div class="onda-select">
@@ -261,9 +261,15 @@
       <button class="sb-btn" onclick="abrirTelaServidores()">
         <i data-lucide="cog" class="sb-icon"></i><span> Processar Servidores</span>
       </button>
+      <button class="sb-btn" onclick="abrirTelaInventario()">
+        <i data-lucide="search" class="sb-icon"></i><span> Inventário de Serviços</span>
+      </button>
 
       <div class="sb-divider"></div>
       <div class="sb-section">Banco de Dados</div>
+      <button class="sb-btn" onclick="abrirTelaStatusSqlite()">
+        <i data-lucide="hard-drive" class="sb-icon"></i><span> Status SQLite</span>
+      </button>
       <button class="sb-btn" onclick="atualizarTodasOndas()">
         <i data-lucide="refresh-cw" class="sb-icon"></i><span> Atualizar Ondas</span>
       </button>
@@ -712,6 +718,244 @@ async function executarColetaSelecionados() {
   }
 }
 
+// ── Tela de Inventário de Serviços ────────────────────────────────────────────
+async function abrirTelaInventario() {
+  ondaAtual = "";
+  document.getElementById("sel-onda").value = "";
+  const main = document.getElementById("main");
+  main.innerHTML = `<div class="loading">Carregando inventário de serviços...</div>`;
+
+  try {
+    const lista = await fetch(`${API}/api/inventario-servicos/lista`).then(r => r.json());
+    if (lista.erro) { main.innerHTML = `<div class="alert">${lista.erro}</div>`; return; }
+
+    // Separar portas conhecidas e genéricas
+    window._inventarioLista = lista;
+
+    main.innerHTML = `
+      <div class="panel">
+        <h2>Inventário de Serviços <span class="badge">baseado em conexões ESTABLISHED + SYN_SENT</span></h2>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <label style="font-size:0.85rem;color:#94a3b8;white-space:nowrap">Serviço:</label>
+          <select id="sel-servico" onchange="carregarInventarioServico(this.value)"
+                  style="flex:1;max-width:400px">
+            <option value="">-- selecione um serviço --</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#94a3b8;cursor:pointer;white-space:nowrap">
+            <input type="checkbox" id="chk-ocultar-genericas" checked onchange="atualizarListaServicos()"
+                   style="width:14px;height:14px;cursor:pointer;accent-color:#3b82f6">
+            Ocultar portas genéricas
+          </label>
+        </div>
+        <div id="inventario-resultado"></div>
+      </div>
+    `;
+    atualizarListaServicos();
+  } catch (e) {
+    main.innerHTML = `<div class="alert">Erro: ${e.message}</div>`;
+  }
+}
+
+function atualizarListaServicos() {
+  const lista = window._inventarioLista || [];
+  const ocultarGenericas = document.getElementById("chk-ocultar-genericas")?.checked;
+  const sel = document.getElementById("sel-servico");
+  const valorAtual = sel.value;
+
+  const filtrada = ocultarGenericas
+    ? lista.filter(s => !s.nome.startsWith("Porta "))
+    : lista;
+
+  sel.innerHTML = '<option value="">-- selecione um serviço --</option>' +
+    filtrada.map(s =>
+      `<option value="${s.porta}"${s.porta === valorAtual ? ' selected' : ''}>${s.nome} (porta ${s.porta}) — ${s.servidores} servidor${s.servidores > 1 ? 'es' : ''}</option>`
+    ).join("");
+}
+
+async function carregarInventarioServico(porta) {
+  const div = document.getElementById("inventario-resultado");
+  if (!porta) { div.innerHTML = ""; return; }
+  div.innerHTML = `<div class="loading">Buscando servidores...</div>`;
+
+  try {
+    const dados = await fetch(`${API}/api/inventario-servicos?porta=${porta}`).then(r => r.json());
+    if (dados.erro) { div.innerHTML = `<div class="alert">${dados.erro}</div>`; return; }
+    if (dados.length === 0) { div.innerHTML = `<div class="empty">Nenhum servidor encontrado para esta porta.</div>`; return; }
+
+    const rows = dados.map(s => {
+      const isProd = s.ambiente && /prod/i.test(s.ambiente) && !/n[aã]o/i.test(s.ambiente);
+      let srvIcon = '';
+      if (!s.ocvs) {
+        srvIcon = '<i data-lucide="external-link" style="width:13px;height:13px;color:#ef4444;vertical-align:middle;margin-right:3px" title="Fora do OCVS"></i>';
+      } else if (!s.hostname || s.hostname === s.ip) {
+        srvIcon = '<i data-lucide="circle-help" style="width:13px;height:13px;color:#3b82f6;vertical-align:middle;margin-right:3px" title="OCVS — sem dados coletados"></i>';
+      } else if (s.ambiente) {
+        srvIcon = isProd
+          ? '<i data-lucide="shield" style="width:13px;height:13px;color:#4ade80;vertical-align:middle;margin-right:3px" title="Produtivo"></i>'
+          : '<i data-lucide="code" style="width:13px;height:13px;color:#fb923c;vertical-align:middle;margin-right:3px" title="Não-Produtivo"></i>';
+      }
+
+      const clientesResumo = s.clientes_lista.slice(0, 5).join(", ") + (s.clientes_lista.length > 5 ? ` (+${s.clientes_lista.length - 5})` : "");
+
+      return `<tr>
+        <td>${srvIcon}${s.hostname || s.ip}</td>
+        <td>${s.ip}</td>
+        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${s.onda}">${s.onda || '—'}</td>
+        <td class="contador-badge">${s.clientes}</td>
+        <td class="tree-num est" style="text-align:right">${s.established ? s.established.toLocaleString("pt-BR") : '—'}</td>
+        <td class="tree-num syn" style="text-align:right">${s.syn_sent ? s.syn_sent.toLocaleString("pt-BR") : '—'}</td>
+        <td style="font-size:0.78rem;color:#64748b;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+            title="${s.clientes_lista.join(', ')}">${clientesResumo}</td>
+      </tr>`;
+    }).join("");
+
+    div.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <span style="font-size:0.85rem;color:#94a3b8">${dados.length} servidor${dados.length > 1 ? 'es' : ''} provendo este serviço</span>
+        <div style="display:flex;align-items:center;gap:14px;font-size:0.72rem;color:#64748b">
+          <span><i data-lucide="shield" style="width:11px;height:11px;color:#4ade80;vertical-align:middle"></i> Produtivo</span>
+          <span><i data-lucide="code" style="width:11px;height:11px;color:#fb923c;vertical-align:middle"></i> Não-Prod</span>
+          <span><i data-lucide="circle-help" style="width:11px;height:11px;color:#3b82f6;vertical-align:middle"></i> OCVS sem coleta</span>
+          <span><i data-lucide="external-link" style="width:11px;height:11px;color:#ef4444;vertical-align:middle"></i> Fora do OCVS</span>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Servidor</th>
+          <th>IP</th>
+          <th>Onda</th>
+          <th>Clientes</th>
+          <th>ESTABLISHED</th>
+          <th>SYN_SENT</th>
+          <th>Clientes (amostra)</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      </div>
+    `;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  } catch (e) {
+    div.innerHTML = `<div class="alert">Erro: ${e.message}</div>`;
+  }
+}
+
+// ── Tela Status SQLite ────────────────────────────────────────────────────────
+async function abrirTelaStatusSqlite() {
+  ondaAtual = "";
+  document.getElementById("sel-onda").value = "";
+  const main = document.getElementById("main");
+  main.innerHTML = `<div class="loading">Carregando status do banco...</div>`;
+
+  try {
+    const dados = await fetch(`${API}/api/status-sqlite`).then(r => r.json());
+    if (dados.erro) { main.innerHTML = `<div class="alert">${dados.erro}</div>`; return; }
+
+    const { totais, servidores } = dados;
+    window._statusSqliteLista = servidores;
+
+    const rows = renderLinhasStatusSqlite(servidores);
+
+    main.innerHTML = `
+      <div class="cards-row">
+        ${cardHTML("Total de servidores", totais.total, "PoweredOn na planilha")}
+        ${cardHTML("Ingeridos", totais.ingeridos, "com dados no SQLite")}
+        ${cardHTML("Pendentes", totais.pendentes, "sem dados no banco")}
+        ${cardHTML("Cobertura", Math.round(totais.ingeridos * 100 / (totais.total || 1)) + "%", "do total de servidores")}
+      </div>
+
+      <div class="panel">
+        <h2>Status por Servidor <span class="badge">${totais.total} servidores</span></h2>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+          <input class="search" id="sqlite-filter" placeholder="Filtrar por hostname, IP, onda..."
+                 oninput="filtrarTabelaStatusSqlite(this.value)" style="margin:0;flex:1;min-width:200px">
+          <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#334155"
+                  onclick="filtrarStatusSqlite('pendente')">⚪ Pendentes</button>
+          <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#334155"
+                  onclick="filtrarStatusSqlite('ingerido')">✅ Ingeridos</button>
+          <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#334155"
+                  onclick="filtrarStatusSqlite('')">Todos</button>
+        </div>
+        <div style="overflow-x:auto">
+        <table id="tbl-status-sqlite">
+          <thead><tr>
+            <th style="cursor:pointer" onclick="ordenarStatusSqlite('hostname')">Servidor ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarStatusSqlite('ip')">IP ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarStatusSqlite('onda')">Onda ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarStatusSqlite('so')">SO ⇅</th>
+            <th style="cursor:pointer" onclick="ordenarStatusSqlite('conexoes')">Conexões ⇅</th>
+            <th>Status</th>
+          </tr></thead>
+          <tbody id="tbody-status-sqlite">${rows}</tbody>
+        </table>
+        </div>
+      </div>
+    `;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  } catch (e) {
+    main.innerHTML = `<div class="alert">Erro: ${e.message}</div>`;
+  }
+}
+
+function renderLinhasStatusSqlite(lista) {
+  return lista.map(s => {
+    const statusTag = s.ingerido
+      ? '<span class="tag tag-ocvs">✅ Ingerido</span>'
+      : '<span class="tag" style="background:#334155;color:#64748b">⚪ Pendente</span>';
+
+    const isProd = s.ambiente && /prod/i.test(s.ambiente) && !/n[aã]o/i.test(s.ambiente);
+    const ambIcon = s.ambiente
+      ? (isProd
+        ? '<i data-lucide="shield" style="width:13px;height:13px;color:#4ade80;vertical-align:middle;margin-right:3px" title="Produtivo"></i>'
+        : '<i data-lucide="code" style="width:13px;height:13px;color:#fb923c;vertical-align:middle;margin-right:3px" title="Não-Produtivo"></i>')
+      : '';
+
+    return `<tr data-ingerido="${s.ingerido}">
+      <td>${ambIcon}${s.hostname}</td>
+      <td>${s.ip || '—'}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${s.onda}">${s.onda || '—'}</td>
+      <td style="font-size:0.78rem;color:#64748b">${s.so || '—'}</td>
+      <td class="contador-badge">${s.ingerido ? s.conexoes.toLocaleString("pt-BR") : '—'}</td>
+      <td>${statusTag}</td>
+    </tr>`;
+  }).join("");
+}
+
+function filtrarTabelaStatusSqlite(q) {
+  const ql = q.toLowerCase();
+  document.querySelectorAll("#tbody-status-sqlite tr").forEach(tr => {
+    const texto = tr.textContent.toLowerCase();
+    tr.style.display = (!ql || texto.includes(ql)) ? "" : "none";
+  });
+}
+
+function filtrarStatusSqlite(tipo) {
+  document.querySelectorAll("#tbody-status-sqlite tr").forEach(tr => {
+    if (!tipo) { tr.style.display = ""; return; }
+    const ingerido = tr.dataset.ingerido === "true";
+    tr.style.display = (tipo === "ingerido" && ingerido) || (tipo === "pendente" && !ingerido) ? "" : "none";
+  });
+}
+
+let _sqliteSort = { col: "hostname", asc: true };
+function ordenarStatusSqlite(col) {
+  if (_sqliteSort.col === col) {
+    _sqliteSort.asc = !_sqliteSort.asc;
+  } else {
+    _sqliteSort.col = col;
+    _sqliteSort.asc = true;
+  }
+  const lista = window._statusSqliteLista;
+  lista.sort((a, b) => {
+    let va = a[col] || "", vb = b[col] || "";
+    if (typeof va === "number" && typeof vb === "number") return _sqliteSort.asc ? va - vb : vb - va;
+    va = String(va).toLowerCase(); vb = String(vb).toLowerCase();
+    return _sqliteSort.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+  });
+  document.getElementById("tbody-status-sqlite").innerHTML = renderLinhasStatusSqlite(lista);
+  if (typeof lucide !== "undefined") lucide.createIcons();
+}
+
 // ── Tela de Servidores ────────────────────────────────────────────────────────
 async function abrirTelaServidores() {
   ondaAtual = "";
@@ -744,6 +988,8 @@ async function abrirTelaServidores() {
           <span class="badge">${servidores.length} servidores</span>
           <button class="btn-refresh" style="margin-left:auto;font-size:0.78rem;padding:4px 12px;background:#7c3aed"
                   onclick="processarSelecionados()">&#9654; Processar selecionados</button>
+          <button class="btn-refresh" style="font-size:0.78rem;padding:4px 12px;background:#0369a1"
+                  onclick="carregarNoBancoSelecionados()">&#9650; Carregar no banco</button>
         </h2>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
           <input class="search" id="srv-filter" placeholder="Filtrar por hostname, IP, onda..."
@@ -754,6 +1000,8 @@ async function abrirTelaServidores() {
                   onclick="selecionarPorStatus('raw_novo')">🔄 Raw novo</button>
           <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#334155"
                   onclick="selecionarPorStatus('atualizado')">✅ Atualizados</button>
+          <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#0369a1"
+                  onclick="selecionarProcessadosSemBanco()">⬆ Prontos p/ banco</button>
           <button class="btn-refresh" style="font-size:0.75rem;padding:3px 10px;background:#334155"
                   onclick="selecionarTodosServidores(false)">Limpar seleção</button>
         </div>
@@ -767,6 +1015,7 @@ async function abrirTelaServidores() {
             <th style="cursor:pointer" onclick="ordenarServidores('so')">SO ⇅</th>
             <th style="cursor:pointer" onclick="ordenarServidores('linhasRaw')">Raw ⇅</th>
             <th style="cursor:pointer" onclick="ordenarServidores('linhasProcessadas')">Processado ⇅</th>
+            <th>Banco</th>
             <th style="cursor:pointer" onclick="ordenarServidores('status')">Status ⇅</th>
           </tr></thead>
           <tbody id="tbody-servidores">
@@ -799,6 +1048,9 @@ function renderLinhasServidores(lista) {
 
     const rawInfo = s.rawExists ? `${(s.linhasRaw || 0).toLocaleString("pt-BR")} linhas` : '—';
     const procInfo = s.processadoExists ? `${(s.linhasProcessadas || 0).toLocaleString("pt-BR")} linhas` : '—';
+    const bancoTag = s.noBanco
+      ? '<span class="tag tag-ocvs" style="font-size:0.68rem">✓</span>'
+      : '<span class="tag" style="background:#334155;color:#64748b;font-size:0.68rem">—</span>';
 
     return `<tr data-hostname="${s.hostname}" data-status="${s.status}">
       <td><input type="checkbox" class="chk-srv" value="${s.hostname}" style="cursor:pointer"></td>
@@ -808,6 +1060,7 @@ function renderLinhasServidores(lista) {
       <td style="font-size:0.78rem;color:#64748b">${s.so || '—'}</td>
       <td style="font-size:0.78rem">${rawInfo}</td>
       <td style="font-size:0.78rem">${procInfo}</td>
+      <td style="text-align:center">${bancoTag}</td>
       <td>${statusTag}</td>
     </tr>`;
   }).join("");
@@ -845,6 +1098,16 @@ function selecionarPorStatus(status) {
     if (tr.style.display === "none") return;
     const chk = tr.querySelector(".chk-srv");
     if (chk) chk.checked = tr.dataset.status === status;
+  });
+}
+
+function selecionarProcessadosSemBanco() {
+  const lista = window._servidoresLista || [];
+  const semBanco = new Set(lista.filter(s => s.status === "atualizado" && !s.noBanco).map(s => s.hostname));
+  document.querySelectorAll("#tbody-servidores tr").forEach(tr => {
+    if (tr.style.display === "none") return;
+    const chk = tr.querySelector(".chk-srv");
+    if (chk) chk.checked = semBanco.has(tr.dataset.hostname);
   });
 }
 
@@ -963,6 +1226,79 @@ async function processarSelecionados() {
     addLinha(`Aviso: falha na ingestão — ${e.message}`, "warn");
   }
 
+  document.getElementById("exec-sub").textContent = "Concluído";
+}
+
+async function carregarNoBancoSelecionados() {
+  const selecionados = [...document.querySelectorAll(".chk-srv:checked")].map(c => c.value);
+  if (selecionados.length === 0) { alert("Selecione ao menos um servidor."); return; }
+
+  // Filtrar apenas os que estão com status "atualizado" (já processados)
+  const atualizados = selecionados.filter(h => {
+    const tr = document.querySelector(`#tbody-servidores tr[data-hostname="${h}"]`);
+    return tr && tr.dataset.status === "atualizado";
+  });
+
+  if (atualizados.length === 0) {
+    alert("Nenhum dos servidores selecionados está processado.\nProcesse-os primeiro antes de carregar no banco.");
+    return;
+  }
+
+  const ignorados = selecionados.length - atualizados.length;
+  const msgIgnorados = ignorados > 0 ? `\n(${ignorados} servidor(es) sem processamento serão ignorados)` : "";
+
+  const ok = await confirmarAcao(
+    "Carregar no Banco",
+    `<p>Serão carregados <strong>${atualizados.length} servidor(es)</strong> no SQLite.</p>
+     ${ignorados > 0 ? `<p style="margin-top:8px;color:#fcd34d;font-size:0.82rem">${ignorados} servidor(es) sem processamento serão ignorados.</p>` : ""}
+     <p style="margin-top:8px;color:#94a3b8;font-size:0.82rem">Os dados processados de cada servidor serão inseridos no banco, substituindo dados anteriores se existirem.</p>`,
+    "Carregar"
+  );
+  if (!ok) return;
+
+  // Executar ingestão
+  const modal = document.getElementById("modal-root");
+  modal.innerHTML = `
+    <div class="modal-overlay">
+      <div class="modal" style="max-width:600px">
+        <div class="modal-header">
+          <div><h3>Carregando no banco</h3><div class="sub" id="exec-sub">Aguarde...</div></div>
+          <button class="modal-close" onclick="fecharModal()">&#x2715;</button>
+        </div>
+        <div class="modal-body" style="padding:16px 20px;font-size:0.85rem;color:#cbd5e1">
+          <div id="carregar-log"></div>
+        </div>
+      </div>
+    </div>`;
+
+  const logDiv = document.getElementById("carregar-log");
+  let sucessos = 0, erros = 0;
+
+  for (let i = 0; i < atualizados.length; i++) {
+    const h = atualizados[i];
+    document.getElementById("exec-sub").textContent = `[${i+1}/${atualizados.length}] ${h}`;
+
+    try {
+      const r = await fetch(`${API}/api/db/ingerir-servidor`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hostname: h }),
+      }).then(r => r.json());
+
+      if (r.ok) {
+        logDiv.innerHTML += `<div style="color:#4ade80">v ${h} — ${r.linhas.toLocaleString("pt-BR")} conexões</div>`;
+        sucessos++;
+      } else {
+        logDiv.innerHTML += `<div style="color:#f87171">x ${h} — ${r.erro}</div>`;
+        erros++;
+      }
+    } catch (e) {
+      logDiv.innerHTML += `<div style="color:#f87171">x ${h} — ${e.message}</div>`;
+      erros++;
+    }
+  }
+
+  logDiv.innerHTML += `<div style="margin-top:12px;font-weight:600;color:#f1f5f9">${sucessos} carregado(s)${erros ? `, ${erros} com erro` : ""}</div>`;
   document.getElementById("exec-sub").textContent = "Concluído";
 }
 

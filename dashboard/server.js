@@ -146,8 +146,15 @@ function obterRangesOcvs() {
   if (vars && vars["RANGES_OCVS"] && vars["RANGES_OCVS"].length > 0) {
     return vars["RANGES_OCVS"];
   }
-  // Fallback
-  return ["10.62.160.0/22", "10.62.176.0/22", "10.62.184.0/24"];
+  // Fallback — mesmos ranges do dependencias_ocvs.awk (octetos 160-170, 176-184)
+  return [
+    "10.62.160.0/21",  // 160-167
+    "10.62.168.0/24",  // 168
+    "10.62.169.0/24",  // 169
+    "10.62.170.0/24",  // 170
+    "10.62.176.0/21",  // 176-183
+    "10.62.184.0/24",  // 184
+  ];
 }
 
 // Verificar se um IP está dentro de um range CIDR
@@ -161,7 +168,8 @@ function ipEmCidr(ip, cidr) {
 
 function ipEhOcvs(ip) {
   const ranges = obterRangesOcvs();
-  return ranges.some(cidr => ipEmCidr(ip, cidr));
+  const resultado = ranges.some(cidr => ipEmCidr(ip, cidr));
+  return resultado;
 }
 
 // Obter mapa hostname → ambiente (PROD / NÃO-PROD) do Excel
@@ -767,6 +775,180 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // ── Inventário de serviços — servidores que proveem um serviço (porta) ──────
+  if (urlPath === "/api/inventario-servicos" && req.method === "GET") {
+    const porta = params.get("porta");
+    if (!porta) return respJson(res, { erro: "porta obrigatória" }, 400);
+
+    try {
+      await db.initDB();
+
+      // Buscar todos os IPs remotos que receberam conexões na porta especificada
+      // (conexões ESTABLISHED onde porta_remota = porta do serviço)
+      const rows = db.queryAll(`
+        SELECT
+          c.ip_remoto,
+          COUNT(DISTINCT c.hostname) as clientes,
+          SUM(c.contador) as total_conexoes,
+          SUM(CASE WHEN c.estado = 'ESTABLISHED' THEN c.contador ELSE 0 END) as established,
+          SUM(CASE WHEN c.estado = 'SYN_SENT' THEN c.contador ELSE 0 END) as syn_sent,
+          GROUP_CONCAT(DISTINCT c.hostname) as hostnames_clientes
+        FROM conexoes c
+        WHERE c.porta_remota = ?
+          AND (c.estado = 'ESTABLISHED' OR c.estado = 'SYN_SENT')
+        GROUP BY c.ip_remoto
+        ORDER BY clientes DESC, total_conexoes DESC
+      `, [porta]);
+
+      // Enriquecer com hostname e onda do servidor que provê o serviço
+      const mapaAmbiente = obterMapaAmbiente();
+      const excelPath = encontrarExcel();
+      const mapaOndas = excelPath ? lerMapaOndas(excelPath) : {};
+
+      // Montar mapa IP → hostname a partir da tabela servidores
+      const servidoresDB = db.queryAll("SELECT hostname, ip FROM servidores WHERE ip != '' AND ip IS NOT NULL");
+      const ipToHostname = {};
+      for (const s of servidoresDB) {
+        if (s.ip) ipToHostname[s.ip] = s.hostname;
+      }
+
+      const resultado = rows.map(r => {
+        const hostname = ipToHostname[r.ip_remoto] || "";
+        const ondaLabel = mapaOndas[hostname] || mapaOndas[r.ip_remoto] || "";
+        const ambiente = mapaAmbiente[hostname.toUpperCase()] || "";
+        const ocvs = ipEhOcvs(r.ip_remoto);
+        return {
+          ip: r.ip_remoto,
+          hostname,
+          onda: ondaLabel,
+          ambiente,
+          ocvs,
+          clientes: r.clientes,
+          total_conexoes: r.total_conexoes,
+          established: r.established,
+          syn_sent: r.syn_sent,
+          clientes_lista: r.hostnames_clientes ? r.hostnames_clientes.split(",") : [],
+        };
+      });
+
+      return respJson(res, resultado);
+    } catch (e) {
+      return respJson(res, { erro: e.message }, 500);
+    }
+  }
+
+  // ── Lista de serviços disponíveis (portas com conexões no banco) ────────────
+  if (urlPath === "/api/inventario-servicos/lista") {
+    try {
+      await db.initDB();
+
+      // Portas conhecidas com nomes amigáveis
+      const portasConhecidas = {
+        "22": "SSH", "25": "SMTP", "53": "DNS", "80": "HTTP", "110": "POP3",
+        "135": "RPC", "139": "NetBIOS", "143": "IMAP", "389": "LDAP",
+        "443": "HTTPS", "445": "SMB", "587": "SMTP (TLS)",
+        "1433": "SQL Server", "1521": "Oracle DB", "3306": "MySQL",
+        "3389": "RDP", "5432": "PostgreSQL", "5671": "AMQP (TLS)",
+        "6379": "Redis", "8080": "HTTP Proxy", "8443": "HTTPS Alt",
+        "9200": "Elasticsearch", "9997": "Splunk", "10050": "Zabbix Agent",
+        "10051": "Zabbix Server", "27017": "MongoDB",
+      };
+
+      // Buscar portas com mais conexões ESTABLISHED no banco
+      const rows = db.queryAll(`
+        SELECT
+          c.porta_remota as porta,
+          COUNT(DISTINCT c.ip_remoto) as servidores,
+          COUNT(DISTINCT c.hostname) as clientes,
+          SUM(c.contador) as total_conexoes
+        FROM conexoes c
+        WHERE (c.estado = 'ESTABLISHED' OR c.estado = 'SYN_SENT')
+          AND c.porta_remota != ''
+        GROUP BY c.porta_remota
+        HAVING servidores >= 1
+        ORDER BY CAST(c.porta_remota AS INTEGER) ASC
+      `);
+
+      const lista = rows.map(r => ({
+        porta: r.porta,
+        nome: portasConhecidas[r.porta] || `Porta ${r.porta}`,
+        servidores: r.servidores,
+        clientes: r.clientes,
+        total_conexoes: r.total_conexoes,
+      }));
+
+      return respJson(res, lista);
+    } catch (e) {
+      return respJson(res, { erro: e.message }, 500);
+    }
+  }
+
+  // ── Status SQLite — servidores com/sem dados ingeridos ──────────────────────
+  if (urlPath === "/api/status-sqlite") {
+    try {
+      const excelPath = encontrarExcel();
+      if (!excelPath) return respJson(res, { erro: "Excel não encontrado" }, 404);
+
+      await db.initDB();
+
+      const wb  = getXLSX().readFile(excelPath, { cellText: true, cellDates: false });
+      const ws  = wb.Sheets["vInfo"];
+      if (!ws) return respJson(res, { erro: "Aba vInfo não encontrada" }, 404);
+      const rows = getXLSX().utils.sheet_to_json(ws, { header: 1 });
+      const hdr  = rows[0] || [];
+
+      let colVM = -1, colIP = -1, colOnda = -1, colSO = -1, colAmb = -1, colPower = -1;
+      hdr.forEach((v, i) => {
+        const s = String(v || "").trim();
+        if (s === "VM")                                              colVM    = i;
+        else if (/IP|Address/i.test(s))                             colIP    = i;
+        else if (s === "ONDA")                                      colOnda  = i;
+        else if (s === "SO REVISADO RESUMIDO")                      colSO    = i;
+        else if (s === "PROD/NÃO-PROD" || s === "PROD/NAO-PROD")   colAmb   = i;
+        else if (/powerstate/i.test(s))                             colPower = i;
+      });
+
+      const servidores = [];
+      for (const row of rows.slice(1)) {
+        const vm    = String(row[colVM]    || "").trim();
+        const ip    = String(row[colIP]    || "").trim();
+        const onda  = String(row[colOnda]  || "").trim();
+        const so    = colSO >= 0 ? String(row[colSO] || "").trim() : "";
+        const amb   = colAmb >= 0 ? String(row[colAmb] || "").trim() : "";
+        const power = colPower >= 0 ? String(row[colPower] || "").trim() : "PoweredOn";
+
+        if (!vm || vm === "None" || vm === "A definir") continue;
+        if (!/poweredon/i.test(power)) continue;
+
+        const vmUpper = vm.toUpperCase();
+
+        // Verificar se tem conexões no SQLite
+        const r = db.queryOne("SELECT COUNT(*) as n FROM conexoes WHERE hostname = ?", [vmUpper]);
+        const conexoes = r ? r.n : 0;
+
+        servidores.push({
+          hostname: vm,
+          ip,
+          onda,
+          so,
+          ambiente: amb,
+          ingerido: conexoes > 0,
+          conexoes,
+        });
+      }
+
+      const totais = {
+        total: servidores.length,
+        ingeridos: servidores.filter(s => s.ingerido).length,
+        pendentes: servidores.filter(s => !s.ingerido).length,
+      };
+
+      return respJson(res, { totais, servidores });
+    } catch (e) {
+      return respJson(res, { erro: e.message }, 500);
+    }
+  }
+
   // ── Lista de servidores Linux para coleta ───────────────────────────────────
   if (urlPath === "/api/servidores-linux") {
     try {
@@ -937,6 +1119,13 @@ const server = http.createServer(async (req, res) => {
         const mOnda = onda.match(/Onda\s+(\w+)/i);
         const ondaNum = mOnda ? mOnda[1] : "";
 
+        // Verificar se está no SQLite
+        let noBanco = false;
+        try {
+          const dbr = db.queryOne("SELECT COUNT(*) as n FROM conexoes WHERE hostname = ?", [vm.toUpperCase()]);
+          noBanco = dbr && dbr.n > 0;
+        } catch {}
+
         servidores.push({
           hostname: vm,
           ip,
@@ -947,6 +1136,7 @@ const server = http.createServer(async (req, res) => {
           rawExists,
           privadoExists,
           processadoExists,
+          noBanco,
           status,
           linhasRaw:        controle ? controle.linhasRaw        || 0 : 0,
           linhasPrivado:    controle ? controle.linhasPrivado    || 0 : 0,
@@ -1778,12 +1968,13 @@ server.listen(PORT, "127.0.0.1", async () => {
   }
   const excelPath = encontrarExcel();
   console.log(`\n========================================`);
-  console.log(` OCVS Migration Dashboard v0.4.3`);
+  console.log(` OCVS Migration Dashboard v0.5.0`);
   console.log(`========================================`);
   console.log(` URL:   http://localhost:${PORT}`);
   console.log(` Base:  ${BASE_DIR}`);
   console.log(` Excel: ${excelPath || "NÃO ENCONTRADO"}`);
   console.log(` Ondas: ${listarOndas().join(", ") || "nenhuma"}`);
+  console.log(` OCVS:  ${obterRangesOcvs().join(", ")}`);
   console.log(`========================================\n`);
   // Abrir browser automaticamente
   try { execSync(`start http://localhost:${PORT}`); } catch {}
