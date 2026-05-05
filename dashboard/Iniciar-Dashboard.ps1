@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Inicia o OCVS Migration Dashboard v0.5.3
+    Inicia o OCVS Migration Dashboard v0.5.4
 #>
 
 $scriptDir = $PSScriptRoot
@@ -35,6 +35,7 @@ Host *
     HostKeyAlgorithms +ssh-rsa
     Ciphers +aes128-cbc
     StrictHostKeyChecking no
+    UserKnownHostsFile NUL
 "@
     Set-Content -Path $sshConfig -Value $sshContent -Encoding UTF8
     Write-Host "SSH config criado em $sshConfig (compatibilidade com servidores legado)" -ForegroundColor Yellow
