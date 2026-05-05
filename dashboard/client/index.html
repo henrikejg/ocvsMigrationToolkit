@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OCVS Migration Dashboard v0.5.1</title>
+<title>OCVS Migration Dashboard v0.5.2</title>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -225,7 +225,7 @@
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">
     <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
   </svg>
-  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.5.1</small></h1>
+  <h1 style="cursor:pointer" onclick="ondaAtual='';document.getElementById('sel-onda').value='';renderHome()">OCVS Migration Dashboard <small>v0.5.2</small></h1>
   <span id="excel-path"></span>
   <div class="header-right">
     <div class="onda-select">
@@ -746,6 +746,11 @@ async function abrirTelaInventario() {
                    style="width:14px;height:14px;cursor:pointer;accent-color:#3b82f6">
             Ocultar irrelevantes
           </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:#94a3b8;cursor:pointer;white-space:nowrap">
+            <input type="checkbox" id="chk-apenas-ocvs" checked onchange="if(document.getElementById('sel-servico').value) carregarInventarioServico(document.getElementById('sel-servico').value)"
+                   style="width:14px;height:14px;cursor:pointer;accent-color:#22c55e">
+            Apenas OCVS
+          </label>
         </div>
         <div id="inventario-resultado"></div>
       </div>
@@ -783,8 +788,15 @@ async function carregarInventarioServico(porta) {
   div.innerHTML = `<div class="loading">Buscando servidores...</div>`;
 
   try {
-    const dados = await fetch(`${API}/api/inventario-servicos?porta=${porta}`).then(r => r.json());
+    let dados = await fetch(`${API}/api/inventario-servicos?porta=${porta}`).then(r => r.json());
     if (dados.erro) { div.innerHTML = `<div class="alert">${dados.erro}</div>`; return; }
+
+    // Filtrar apenas OCVS se checkbox marcada
+    const apenasOcvs = document.getElementById("chk-apenas-ocvs")?.checked;
+    if (apenasOcvs) {
+      dados = dados.filter(s => s.ocvs);
+    }
+
     if (dados.length === 0) { div.innerHTML = `<div class="empty">Nenhum servidor encontrado para esta porta.</div>`; return; }
 
     const rows = dados.map(s => {

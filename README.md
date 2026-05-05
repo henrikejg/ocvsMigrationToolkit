@@ -1,4 +1,4 @@
-# OCVS Migration Toolkit — v0.5.1
+# OCVS Migration Toolkit — v0.5.2
 
 Ferramentas para coleta, processamento e análise de dependências de rede (camada 4) durante migração de VMs OCVS para IaaS.
 
