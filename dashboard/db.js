@@ -38,7 +38,25 @@ function salvarDB() {
   const dir = path.dirname(DB_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const data = _db.export();
-  fs.writeFileSync(DB_PATH, Buffer.from(data));
+  const buf  = Buffer.from(data);
+
+  // Retry com delay para lidar com lock do OneDrive
+  const MAX_TENTATIVAS = 5;
+  for (let i = 0; i < MAX_TENTATIVAS; i++) {
+    try {
+      fs.writeFileSync(DB_PATH, buf);
+      return;
+    } catch (e) {
+      if (i < MAX_TENTATIVAS - 1 && (e.code === "EBUSY" || e.code === "EPERM")) {
+        // Esperar antes de tentar novamente
+        const delay = (i + 1) * 1000;
+        const start = Date.now();
+        while (Date.now() - start < delay) {} // busy wait (sync)
+      } else {
+        throw e;
+      }
+    }
+  }
 }
 
 // ── Schema ────────────────────────────────────────────────────────────────────
@@ -175,7 +193,7 @@ function ingerirOnda(numeroOnda, linhas) {
     salvarDB();
     return { ok: true, servidores: hostnames.length, linhas: linhas.length };
   } catch (e) {
-    _db.run("ROLLBACK");
+    try { _db.run("ROLLBACK"); } catch {}
     throw e;
   }
 }
@@ -218,7 +236,7 @@ function sincronizarOnda(numeroOnda, membros) {
     salvarDB();
     return { ok: true, membros: membros.length };
   } catch (e) {
-    _db.run("ROLLBACK");
+    try { _db.run("ROLLBACK"); } catch {}
     throw e;
   }
 }
@@ -238,7 +256,7 @@ function sincronizarAplicacoes(mapa) {
     _db.run("COMMIT");
     salvarDB();
   } catch (e) {
-    _db.run("ROLLBACK");
+    try { _db.run("ROLLBACK"); } catch {}
     throw e;
   }
 }
